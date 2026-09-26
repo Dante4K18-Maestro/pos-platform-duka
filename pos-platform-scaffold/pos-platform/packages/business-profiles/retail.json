@@ -1,0 +1,6 @@
+{
+  "id": "retail",
+  "label": "Retail shop",
+  "vocabulary": { "sale": "Sale", "item": "Product", "customer": "Customer" },
+  "flags": { "variants": true, "barcodeScan": true, "modifiers": false }
+}

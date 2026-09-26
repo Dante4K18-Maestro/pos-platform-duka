@@ -1,0 +1,6 @@
+{
+  "id": "cafe",
+  "label": "Café",
+  "vocabulary": { "sale": "Order", "item": "Menu item", "customer": "Guest" },
+  "flags": { "variants": false, "barcodeScan": false, "modifiers": true }
+}

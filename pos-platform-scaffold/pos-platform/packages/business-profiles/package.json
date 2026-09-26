@@ -1,0 +1,6 @@
+{
+  "name": "@pos/business-profiles",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts"
+}

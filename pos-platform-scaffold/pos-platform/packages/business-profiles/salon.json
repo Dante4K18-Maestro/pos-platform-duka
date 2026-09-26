@@ -1,0 +1,6 @@
+{
+  "id": "salon",
+  "label": "Salon",
+  "vocabulary": { "sale": "Ticket", "item": "Service", "customer": "Client" },
+  "flags": { "variants": false, "barcodeScan": false, "modifiers": false, "appointments": true }
+}

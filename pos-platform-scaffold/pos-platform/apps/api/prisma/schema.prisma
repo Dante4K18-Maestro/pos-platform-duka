@@ -1,0 +1,735 @@
+// Core data model — docs/02-data-model.md, made concrete.
+//
+// Conventions:
+//   - Every table carries tenant_id, created_at, updated_at, deleted_at.
+//   - Every table the client writes also carries client_id (unique), so a
+//     replayed sync mutation is a no-op — the single most important server
+//     rule in the system.
+//   - Money is always an integer in minor units (see @pos/money). Never a
+//     float, anywhere — schema, wire format, or UI.
+//   - tenantId is a plain indexed column, not a Prisma relation, on every
+//     table except the handful (Store, Register, User) that already had a
+//     `tenant` relation from the walking-skeleton schema. Tenant scoping is
+//     enforced by the tenant middleware on every query, not by a DB-level
+//     FK to a 25-field Tenant model — that FK would add write-path
+//     overhead without adding a safety property the app doesn't already
+//     guarantee server-side.
+//   - Tax is resolved at sale time and stored on the line. Never recompute
+//     historical tax from a current rate.
+//   - inventory_levels is a derived cache of on-hand per (variant, store).
+//     It is never the source of truth — stock_movements is, and it is
+//     append-only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------
+// Tenancy, stores, registers, users, roles
+// ---------------------------------------------------------------------
+
+model Tenant {
+  id           String    @id @default(uuid())
+  name         String
+  featureFlags Json      @default("{}")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  stores Store[]
+  users  User[]
+
+  @@map("tenants")
+}
+
+model Store {
+  id        String    @id @default(uuid())
+  tenantId  String
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  registers       Register[]
+  inventoryLevels InventoryLevel[]
+
+  @@index([tenantId])
+  @@map("stores")
+}
+
+model Register {
+  id        String    @id @default(uuid())
+  tenantId  String
+  storeId   String
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  store        Store         @relation(fields: [storeId], references: [id])
+  sales        Sale[]
+  cashSessions CashSession[]
+
+  @@index([tenantId])
+  @@map("registers")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  tenantId     String
+  email        String
+  passwordHash String
+  // Separate from passwordHash: cashiers unlock a shared device with a PIN,
+  // owners/managers log in with a password. Different secrets, different
+  // hashing cost, different rotation policy.
+  pinHash      String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id])
+  roles  UserRole[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Role {
+  id        String    @id @default(uuid())
+  tenantId  String
+  name      String
+  // Permissions as strings ("sale.refund", "inventory.adjust"), roles as
+  // sets of them. No separate permissions table — a permission that isn't
+  // referenced by a role or a guard is dead weight, not data worth modeling.
+  permissions String[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  users UserRole[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+model UserRole {
+  id     String @id @default(uuid())
+  userId String
+  roleId String
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+// ---------------------------------------------------------------------
+// Catalog: products, variants, modifiers, categories
+// ---------------------------------------------------------------------
+
+model Category {
+  id        String    @id @default(uuid())
+  tenantId  String
+  name      String
+  parentId  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@index([tenantId])
+  @@map("categories")
+}
+
+model Product {
+  id          String    @id @default(uuid())
+  tenantId    String
+  categoryId  String?
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  category  Category?         @relation(fields: [categoryId], references: [id])
+  options   ProductOption[]
+  variants  Variant[]
+  modifiers ProductModifier[]
+
+  @@index([tenantId])
+  @@map("products")
+}
+
+// e.g. "Size" — values are normalised so a size/colour matrix is generated,
+// not typed by hand per variant.
+model ProductOption {
+  id        String @id @default(uuid())
+  tenantId  String
+  productId String
+  name      String
+
+  product Product              @relation(fields: [productId], references: [id])
+  values  ProductOptionValue[]
+
+  @@index([tenantId])
+  @@map("product_options")
+}
+
+// e.g. "M", "Red"
+model ProductOptionValue {
+  id       String @id @default(uuid())
+  optionId String
+  value    String
+
+  option        ProductOption        @relation(fields: [optionId], references: [id])
+  variantValues VariantOptionValue[]
+
+  @@map("product_option_values")
+}
+
+model Variant {
+  id           String    @id @default(uuid())
+  tenantId     String
+  productId    String
+  sku          String
+  barcode      String?
+  priceMinor   Int
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  product         Product              @relation(fields: [productId], references: [id])
+  optionValues    VariantOptionValue[]
+  inventoryLevels InventoryLevel[]
+  stockMovements  StockMovement[]
+  saleItems       SaleItem[]
+  poItems         POItem[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+  @@index([barcode])
+  @@map("variants")
+}
+
+model VariantOptionValue {
+  id            String @id @default(uuid())
+  variantId     String
+  optionValueId String
+
+  variant     Variant            @relation(fields: [variantId], references: [id])
+  optionValue ProductOptionValue @relation(fields: [optionValueId], references: [id])
+
+  @@unique([variantId, optionValueId])
+  @@map("variant_option_values")
+}
+
+// e.g. "Extra shot" — a cafe-profile concept, harmless to have present for
+// retail tenants that never populate it.
+model Modifier {
+  id             String    @id @default(uuid())
+  tenantId       String
+  name           String
+  priceDeltaMinor Int      @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  products ProductModifier[]
+
+  @@index([tenantId])
+  @@map("modifiers")
+}
+
+model ProductModifier {
+  id         String @id @default(uuid())
+  productId  String
+  modifierId String
+
+  product  Product  @relation(fields: [productId], references: [id])
+  modifier Modifier @relation(fields: [modifierId], references: [id])
+
+  @@unique([productId, modifierId])
+  @@map("product_modifiers")
+}
+
+// ---------------------------------------------------------------------
+// Tax, pricing
+// ---------------------------------------------------------------------
+
+model TaxRate {
+  id                String    @id @default(uuid())
+  tenantId          String
+  name              String
+  rateBasisPoints   Int // e.g. 1600 = 16%
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  @@index([tenantId])
+  @@map("tax_rates")
+}
+
+model PriceList {
+  id        String    @id @default(uuid())
+  tenantId  String
+  name      String
+  currency  String    @default("KES")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([tenantId])
+  @@map("price_lists")
+}
+
+// ---------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------
+
+// Derived cache of on-hand per (variant, store). Rebuilt from
+// stock_movements; never written directly as the source of truth.
+model InventoryLevel {
+  id        String   @id @default(uuid())
+  tenantId  String
+  storeId   String
+  variantId String
+  onHand    Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  store   Store   @relation(fields: [storeId], references: [id])
+  variant Variant @relation(fields: [variantId], references: [id])
+
+  @@unique([storeId, variantId])
+  @@index([tenantId])
+  @@map("inventory_levels")
+}
+
+enum StockMovementReason {
+  SALE
+  RETURN
+  ADJUSTMENT
+  RECEIPT
+  TRANSFER
+  WASTE
+}
+
+// Append-only ledger. Signed quantity, reason, actor, reference. This is
+// the source of truth inventory_levels is derived from — never edit or
+// delete a row here, only insert.
+model StockMovement {
+  id             String              @id @default(uuid())
+  tenantId       String
+  storeId        String
+  variantId      String
+  quantityDelta  Int
+  reason         StockMovementReason
+  actorUserId    String?
+  referenceType  String? // "sale" | "purchase_order" | "refund" | ...
+  referenceId    String?
+  // Offline-generated movements (e.g. a sale rung up while disconnected)
+  // need the same idempotency guarantee as everything else in the outbox.
+  clientId       String?             @unique
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  deletedAt      DateTime?
+
+  store   Store   @relation(fields: [storeId], references: [id])
+  variant Variant @relation(fields: [variantId], references: [id])
+
+  @@index([tenantId])
+  @@index([variantId, storeId])
+  @@map("stock_movements")
+}
+
+// ---------------------------------------------------------------------
+// Purchasing — tables land in v0.1, UI arrives in v0.2
+// ---------------------------------------------------------------------
+
+model Supplier {
+  id          String    @id @default(uuid())
+  tenantId    String
+  name        String
+  contactInfo Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  purchaseOrders PurchaseOrder[]
+
+  @@index([tenantId])
+  @@map("suppliers")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  ORDERED
+  RECEIVED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id         String              @id @default(uuid())
+  tenantId   String
+  storeId    String
+  supplierId String
+  status     PurchaseOrderStatus @default(DRAFT)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  deletedAt  DateTime?
+
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  items    POItem[]
+
+  @@index([tenantId])
+  @@map("purchase_orders")
+}
+
+model POItem {
+  id               String @id @default(uuid())
+  purchaseOrderId  String
+  variantId        String
+  quantityOrdered  Int
+  quantityReceived Int    @default(0)
+  unitCostMinor    Int
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  variant       Variant       @relation(fields: [variantId], references: [id])
+
+  @@index([purchaseOrderId])
+  @@map("po_items")
+}
+
+// ---------------------------------------------------------------------
+// Customers — purchase history is a query over sales, not a stored column
+// ---------------------------------------------------------------------
+
+model Customer {
+  id        String    @id @default(uuid())
+  tenantId  String
+  name      String
+  phone     String?
+  email     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  notes        CustomerNote[]
+  sales        Sale[]
+  storeCredits StoreCredit[]
+
+  @@index([tenantId])
+  @@map("customers")
+}
+
+model CustomerNote {
+  id           String    @id @default(uuid())
+  tenantId     String
+  customerId   String
+  authorUserId String?
+  body         String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@map("customer_notes")
+}
+
+// ---------------------------------------------------------------------
+// Sales
+// ---------------------------------------------------------------------
+
+enum SaleStatus {
+  DRAFT
+  HELD
+  COMPLETED
+  VOIDED
+  REFUNDED
+}
+
+enum SaleChannel {
+  IN_STORE
+  ONLINE
+}
+
+model Sale {
+  id             String      @id @default(uuid())
+  tenantId       String
+  clientId       String      @unique
+  registerId     String
+  cashSessionId  String?
+  customerId     String?
+  status         SaleStatus  @default(DRAFT)
+  channel        SaleChannel @default(IN_STORE)
+  // Charged amounts — never recomputed from current catalog/tax state.
+  subtotalMinor  Int
+  discountMinor  Int         @default(0)
+  taxMinor       Int
+  totalMinor     Int
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  deletedAt      DateTime?
+
+  register   Register     @relation(fields: [registerId], references: [id])
+  cashSession CashSession? @relation(fields: [cashSessionId], references: [id])
+  customer   Customer?    @relation(fields: [customerId], references: [id])
+  items      SaleItem[]
+  payments   Payment[]
+  refunds    Refund[]
+
+  @@index([tenantId])
+  // Backs both the sales-history screen and the nightly rollup scan.
+  @@index([tenantId, createdAt])
+  @@map("sales")
+}
+
+model SaleItem {
+  id             String @id @default(uuid())
+  tenantId       String
+  saleId         String
+  variantId      String
+  quantity       Int
+  // As charged, at sale time — resolved once, stored forever.
+  unitPriceMinor Int
+  discountMinor  Int    @default(0)
+  taxMinor       Int
+
+  sale        Sale         @relation(fields: [saleId], references: [id])
+  variant     Variant      @relation(fields: [variantId], references: [id])
+  refundItems RefundItem[]
+
+  @@index([saleId])
+  @@index([tenantId])
+  @@map("sale_items")
+}
+
+// ---------------------------------------------------------------------
+// Payments — many per sale, that's what "split tender" means
+// ---------------------------------------------------------------------
+
+enum PaymentMethod {
+  CASH
+  MPESA
+  CARD
+  STORE_CREDIT
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+model Payment {
+  id                 String        @id @default(uuid())
+  tenantId           String
+  saleId             String
+  method             PaymentMethod
+  amountMinor        Int
+  status             PaymentStatus @default(PENDING)
+  // CheckoutRequestID for M-Pesa. The idempotency key both the callback
+  // and the mpesa-reconcile sweep key on — a repeat delivery of either is a
+  // no-op, never a second payment row.
+  processorReference String?       @unique
+  // What the merchant uses to settle a dispute with a customer, and what
+  // daily cash-up balances against.
+  mpesaReceiptNumber String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
+
+  sale Sale @relation(fields: [saleId], references: [id])
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------
+// Refunds
+// ---------------------------------------------------------------------
+
+model Refund {
+  id         String    @id @default(uuid())
+  tenantId   String
+  saleId     String
+  reason     String?
+  totalMinor Int
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  sale  Sale         @relation(fields: [saleId], references: [id])
+  items RefundItem[]
+
+  @@index([tenantId])
+  @@map("refunds")
+}
+
+model RefundItem {
+  id          String @id @default(uuid())
+  refundId    String
+  saleItemId  String
+  quantity    Int
+  amountMinor Int
+
+  refund   Refund   @relation(fields: [refundId], references: [id])
+  saleItem SaleItem @relation(fields: [saleItemId], references: [id])
+
+  @@map("refund_items")
+}
+
+model StoreCredit {
+  id            String    @id @default(uuid())
+  tenantId      String
+  customerId    String
+  balanceMinor  Int
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([tenantId])
+  @@map("store_credits")
+}
+
+// ---------------------------------------------------------------------
+// Cash sessions — opening float, pay-ins/outs, counted close, variance
+// ---------------------------------------------------------------------
+
+model CashSession {
+  id                    String    @id @default(uuid())
+  tenantId              String
+  registerId            String
+  openedByUserId        String
+  openingFloatMinor     Int
+  countedCloseMinor     Int?
+  computedVarianceMinor Int?
+  closedAt              DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  register  Register       @relation(fields: [registerId], references: [id])
+  movements CashMovement[]
+  sales     Sale[]
+
+  @@index([tenantId])
+  @@map("cash_sessions")
+}
+
+enum CashMovementType {
+  PAY_IN
+  PAY_OUT
+}
+
+model CashMovement {
+  id            String           @id @default(uuid())
+  tenantId      String
+  cashSessionId String
+  type          CashMovementType
+  amountMinor   Int
+  reason        String?
+  createdAt     DateTime         @default(now())
+
+  cashSession CashSession @relation(fields: [cashSessionId], references: [id])
+
+  @@index([cashSessionId])
+  @@map("cash_movements")
+}
+
+// ---------------------------------------------------------------------
+// Custom fields — the niche escape hatch
+// ---------------------------------------------------------------------
+
+enum CustomFieldEntityType {
+  PRODUCT
+  CUSTOMER
+  SALE
+}
+
+model CustomFieldDef {
+  id         String                @id @default(uuid())
+  tenantId   String
+  entityType CustomFieldEntityType
+  name       String
+  fieldType  String // "text" | "number" | "boolean" | "date"
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+  deletedAt  DateTime?
+
+  values CustomFieldValue[]
+
+  @@index([tenantId])
+  @@map("custom_field_defs")
+}
+
+model CustomFieldValue {
+  id       String @id @default(uuid())
+  defId    String
+  entityId String
+  value    String
+
+  def CustomFieldDef @relation(fields: [defId], references: [id])
+
+  @@index([entityId])
+  @@map("custom_field_values")
+}
+
+// ---------------------------------------------------------------------
+// Audit log — non-negotiable once money and refunds are involved
+// ---------------------------------------------------------------------
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String
+  before      Json?
+  after       Json?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([entityType, entityId])
+  @@map("audit_log")
+}
+
+// ---------------------------------------------------------------------
+// Reporting — written by the nightly job; the dashboard and the AI
+// assistant read this, never the live transaction tables.
+// ---------------------------------------------------------------------
+
+model DailySalesRollup {
+  id               String   @id @default(uuid())
+  tenantId         String
+  storeId          String
+  date             DateTime @db.Date
+  grossSalesMinor  Int
+  refundsMinor     Int
+  transactionCount Int
+  topVariantId     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([tenantId, storeId, date])
+  @@index([tenantId])
+  @@map("daily_sales_rollup")
+}
