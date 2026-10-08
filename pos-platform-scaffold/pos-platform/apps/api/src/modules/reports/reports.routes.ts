@@ -1,4 +1,9 @@
 // Reports routes
-// TODO: implement. Scaffold only — see docs/01-architecture.md for the contract.
+import type { FastifyInstance } from "fastify";
+import { ReportsController } from "./reports.controller";
 
-export {};
+export async function reportsRoutes(app: FastifyInstance) {
+  const controller = new ReportsController();
+
+  app.get("/overview", { preHandler: [app.authenticate] }, controller.overview.bind(controller));
+}

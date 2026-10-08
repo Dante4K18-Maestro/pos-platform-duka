@@ -1,7 +1,18 @@
 # api + ai services as code. Both are free-tier web services: they spin down
 # after 15 minutes idle and take about a minute to wake. The offline-first
-# client means a cold API never blocks a sale; a cron ping (below) keeps
-# both warm during trading hours anyway.
+# client means a cold API never blocks a sale.
+#
+# The API now runs its own scheduler (apps/api/src/jobs/scheduler.ts):
+#   - an M-Pesa recheck every minute, and
+#   - a keep-awake ping during trading hours.
+# So a *stable, public URL* is all this deployment needs — the cron entries
+# below are a belt-and-braces backstop for the case where the web service is
+# genuinely asleep.
+#
+# After the first deploy, set PUBLIC_BASE_URL and MPESA_CALLBACK_URL to
+# https://<pos-api-service>.onrender.com (Render assigns the hostname from the
+# service name, so with this name it is https://pos-api.onrender.com) and
+# register that callback URL on the Daraja app.
 services:
   - type: web
     name: pos-api
@@ -19,6 +30,37 @@ services:
         sync: false
       - key: AI_SERVICE_TOKEN
         sync: false
+      # The shop's clock, so the trading-hours window and the cron schedules
+      # line up with Nairobi rather than UTC.
+      - key: TZ
+        value: Africa/Nairobi
+      # Daraja. Secrets stay out of the blueprint; the shortcode and the
+      # callback are safe to pin here. Blank credentials are valid — M-Pesa
+      # sales then stay PENDING and /settings/mpesa reports `configured: false`.
+      - key: MPESA_ENVIRONMENT
+        value: sandbox
+      - key: MPESA_SHORTCODE
+        value: "174379"
+      - key: MPESA_CALLBACK_URL
+        value: https://pos-api.onrender.com/payments/mpesa/callback
+      - key: MPESA_CONSUMER_KEY
+        sync: false
+      - key: MPESA_CONSUMER_SECRET
+        sync: false
+      - key: MPESA_PASSKEY
+        sync: false
+      # The published stable origin this service is reachable at — used by the
+      # keep-awake ping and shown on /health.
+      - key: PUBLIC_BASE_URL
+        value: https://pos-api.onrender.com
+      - key: SCHEDULER_ENABLED
+        value: "true"
+      - key: TRADING_HOURS_START
+        value: "6"
+      - key: TRADING_HOURS_END
+        value: "22"
+      - key: TRADING_TIMEZONE
+        value: Africa/Nairobi
 
   - type: web
     name: pos-ai
@@ -37,18 +79,22 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
 
-  - type: cron
-    name: pos-api-warm-ping
-    env: node
-    plan: free
-    schedule: "*/10 6-22 * * *" # every 10 min, 06:00-22:00 — trading hours
-    buildCommand: "true"
-    startCommand: "curl -sf https://pos-api.onrender.com/health && curl -sf https://pos-ai.onrender.com/health"
-
+  # Backstop only: the API's own scheduler already does this every minute.
+  # Kept because a cron runs even if the web service is spun down.
   - type: cron
     name: pos-mpesa-reconcile-sweep
     env: node
     plan: free
-    schedule: "* * * * *" # every minute — mitigation #1, never trust the callback alone
+    schedule: "* * * * *" # every minute
     buildCommand: pnpm install --frozen-lockfile
-    startCommand: pnpm --filter @pos/api exec tsx src/jobs/mpesa-reconcile.ts
+    startCommand: pnpm --filter @pos/api run job:mpesa-reconcile
+
+  - type: cron
+    name: pos-api-warm-ping
+    env: node
+    plan: free
+    # Render evaluates cron schedules in UTC. 03:00-19:00 UTC is
+    # 06:00-22:00 Africa/Nairobi (EAT, UTC+3, no DST).
+    schedule: "*/10 3-19 * * *"
+    buildCommand: "true"
+    startCommand: "curl -sf https://pos-api.onrender.com/health && curl -sf https://pos-ai.onrender.com/health"

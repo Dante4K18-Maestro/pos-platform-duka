@@ -1,0 +1,71 @@
+Real M-Pesa payments — I need your Daraja sandbox keys (consumer key/secret, shortcode, passkey) and a callback token. Until then payments run on the built-in test stub. 
+Scheduled background jobs — the automatic M-Pesa recheck (every minute) and the keep-awake ping during trading hours have working endpoints but no scheduler yet; the app needs a published, stable URL to point them at.
+Ready to build next:
+
+Camera barcode scanning — scan products with the phone camera instead of a keyboard-wedge scanner. This is the next coding task on the roadmap.
+Also worth doing:
+
+A full end-to-end test of the app in the browser (sign-up → sell → payment states → assistant), since everything so far is verified by build, not by running it.
+
+From the Daraja developer portal (developer.safaricom.co.ke — create a free account, then create an app; sandbox credentials appear on the app's dashboard):
+
+Consumer Key — the app's public identifier, used to ask for an access token.
+Consumer Secret — the password that goes with that key. Treat it as a real secret.
+Shortcode — the number money lands in. In sandbox this is Safaricom's shared test number (174379); in production it's your own paybill or till number, issued after you sign the M-Pesa agreement.
+Passkey — a shared secret that pairs with the shortcode to sign each payment request. Sandbox has a published test passkey; production gets its own.
+For production you'll also need Safaricom to enable the M-Pesa Express (STK Push) scope on the app — sandbox has it by default.
+
+The one you create:
+
+Callback token — not from Safaricom. It's a random string that goes into the payment-prompt URL we hand to Daraja, so our callback endpoint can prove an incoming notification is genuinely ours and not someone poking at it. Make one strong value yourself (openssl rand -hex 32 or a password manager), and save the same string in both places.
+
+PASSKEY = "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919"
+CONSUMER_KEY = "OwLUvMt8E6NlGWK1aQ2xnAJjOSERGdiW2LVpREtOJFmVGz5c"
+CONSUMER_SECRET = "bQrBsaEy7DXu3nplwrMDxrIHGQnNlYQLKUg5PCLJXGGhtJkhLTwZfoRdAUwY1vR3"
+SHORTCODE = "174379"
+
+CALLBACK_TOKEN = ""
+
+Scheduled background jobs — the automatic M-Pesa recheck (every minute) and the keep-awake ping during trading hours with working endpoints with a scheduler that provides the app with a published, stable URL to point them at.
+
+PASSKEY = "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919"
+CONSUMER_KEY = "OwLUvMt8E6NlGWK1aQ2xnAJjOSERGdiW2LVpREtOJFmVGz5c"
+CONSUMER_SECRET = "bQrBsaEy7DXu3nplwrMDxrIHGQnNlYQLKUg5PCLJXGGhtJkhLTwZfoRdAUwY1vR3"
+SHORTCODE = "174379"
+
+PASSKEY = "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919"
+CONSUMER_KEY = "LwbHAXswDBJJTt2saMb2qmbTJ8B6DqGCoGh1UNrRGarl8gC1"
+CONSUMER_SECRET = "vcmEm7HBfrAiPA2luEG2PBs7flsZErZWt2XXhkXLfASZCKcj9aKAKGM11cfxrfHg"
+SHORTCODE = "174379"
+
+Here are the details from DARAJA API Safaricom:PASSKEY = "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919"
+CONSUMER_KEY = "LwbHAXswDBJJTt2saMb2qmbTJ8B6DqGCoGh1UNrRGarl8gC1"
+CONSUMER_SECRET = "vcmEm7HBfrAiPA2luEG2PBs7flsZErZWt2XXhkXLfASZCKcj9aKAKGM11cfxrfHg"
+SHORTCODE = "174379" Continue with the rest of the procedures. I would also like to add an algorithm to the app. Since it is a dating app, we could create a way of matching people with the highest likelihood of compatibility and have the highest chances of obtaining a match based on the details they have inputed, for example by finding peole close to your area, we can be able to make suggestions to our users. Go a step further and include features that can enable our users to be able to send and receive files. We will also include a chatbot section and create a chatbot that talks to people who are lonely, either in a flirtatious and sexy way, or in a comforting way depending on the mood of the user. The chatbot can be created by use of any open LLMs then it can be trained by using online sources of information such as the online web app called "Replika","HakkoAI","Nomi", we'll model something that is similar to the AI Girlfriend apps.
+
+'Sign-in with Google' feature should be a must-have feature in the app.
+Include "Pass-word recovery" as also a feature.
+
+
+
+
+Make the chatbot more interactive.
+It should be suggestive, chatty, more lively, instigating and have all the warm, beautiful and sexy qualities one would want in a girlfriend.
+Be sure to include vulgar and sexual language here and there in a sexy and teasing way.
+I want there to be also AI generated images of the characters. If there could also be a voice over that be great
+
+The users should be able to create scenarios where they can envision how they want their characters to behave and indulge in a bit of some roleplay.
+This can be down to the pose,clothing, scene, lighting, NSFW.
+The option of creating a character should also be included. 
+The parameters for character creation should include the following criteria:Gender, Style, Ethnicity, Age,
+Eye Color, Personality, Hair Color,Body type, Hair style and length, Occupation, Hobby, Kink, Relationship, Clothing, Response style, Flirtiness and Voices all of these which can be obtained from open-source LLMs
+Websites such as https://www.xchar.ai/ offer the guidelines and the appropriate examples you can follow.
+As for the monetization, we will mainly rely on ads which are illustrated to our tier of free users.
+Those sho want an ad-free PWA will have to opt to subscribe to paid plans.
+This monetization plan will be integrated and executed in due time, the main goal right now is to create a V0.1 that we can ship out to our users to enjoy.
+
+'Sign-in with Google' feature should be a must-have feature in the app.
+Settings region is another feature, this app lacks.
+There should be an age-feature that ensures one is not less than 18 and cannot be over 100.
+Include "Pass-word recovery" as also a feature.
+

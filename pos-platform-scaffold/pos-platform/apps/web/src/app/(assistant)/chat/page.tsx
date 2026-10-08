@@ -1,4 +1,7 @@
-// The assistant chat UI. Shows an explicit "thinking" state while the AI service (cold-started on Render's free tier) wakes up.
+// This slice of the register flow lives in the register front end at /pos
+// (templates/pos.html). Kept as a redirect so planned routes resolve.
+import { redirect } from "next/navigation";
+
 export default function Page() {
-  return null; // TODO
+  redirect("/pos");
 }

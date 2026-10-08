@@ -1,0 +1,1911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Duka POS Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Warm brand mapping: `gray` utilities resolve to warm stone/cream so
+         the whole register matches the Next.js surfaces (globals.css tokens:
+         cream bg, warm borders, stone ink) while emerald stays the accent. -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+                    colors: {
+                        gray: {
+                            50: '#faf8f4',
+                            100: '#f5f0e8',
+                            200: '#e7e2da',
+                            300: '#d6d3d1',
+                            400: '#a8a29e',
+                            500: '#78716c',
+                            600: '#57534e',
+                            700: '#44403c',
+                            800: '#292524',
+                            900: '#1c1917',
+                            950: '#0c0a09',
+                        },
+                    },
+                },
+            },
+        };
+    </script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* ==================================================================
+           Duka POS — register skin.
+           Tailwind (CDN) still owns layout; this layer owns motion: aurora
+           washes, glass surfaces, neon-emerald focus states and entrance
+           choreography. Everything collapses under prefers-reduced-motion
+           at the bottom of this block.
+           ================================================================== */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        :root {
+            --brand: #10b981;
+            --brand-glow: rgba(16, 185, 129, 0.45);
+            --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+            --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+            /* Amber joins the accent band so the skin reads as "system", not
+               "green theme" — same set the header hairline uses. */
+            --accent-band: linear-gradient(90deg, #10b981, #34d399 35%, #fbbf24 65%, #10b981);
+        }
+
+        /* Blueprint grid + cream base. The moving copy: a same-size grid
+           layer translating exactly one tile per loop, then resetting. No
+           visible jump, only slow drift. GPU-only transform, no repaint. */
+        body {
+            background: #faf8f4;
+        }
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(16, 185, 129, .055) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(16, 185, 129, .055) 1px, transparent 1px);
+            background-size: 48px 48px;
+            animation: scanline 3.2s linear infinite;
+        }
+        body::after {
+            /* Warm vignette over the grid so the centre stays calm. */
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background: radial-gradient(120vw 120vh at 50% 40%, transparent 60%, rgba(250, 248, 244, .9) 100%);
+            opacity: .7;
+        }
+
+        body { font-family: 'Inter', sans-serif; }
+
+        /* --- Keyframes --------------------------------------------------- */
+        @keyframes tabIn      { from { opacity: 0; transform: translateY(12px) scale(.994); } to { opacity: 1; transform: none; } }
+        @keyframes fadeUp     { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+        @keyframes popIn      { 0% { opacity: .35; transform: scale(.86); } 60% { transform: scale(1.07); } 100% { opacity: 1; transform: scale(1); } }
+        @keyframes auroraDrift { 0% { background-position: 0% 0%, 100% 100%; } 50% { background-position: 12% 9%, 88% 91%; } 100% { background-position: 0% 0%, 100% 100%; } }
+        @keyframes sheen      { 0% { background-position: 0 -60%; } 100% { background-position: 0 160%; } }
+        @keyframes slideLine  { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        @keyframes shimmer    { 0% { transform: translateX(-140%); } 55%, 100% { transform: translateX(260%); } }
+        /* A faint 48px grid, like graph paper under the app. Bleeds 1px on two
+           sides so no hard edge shows; fully transparent so it never fights
+           the content. */
+        @keyframes scanline   { to { transform: translate3d(48px, 48px, 0); } }
+        /* The sweep that makes a tile's border light up as you approach. */
+        @keyframes borderSweep { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+        /* Online-store feel: a dot that grows and fades on repeat. */
+        @keyframes livePulse  {
+            0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, .45); }
+            70%  { box-shadow: 0 0 0 9px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        @keyframes gaugeFill { from { width: 0; } }
+
+        /* --- Scrollbars -------------------------------------------------- */
+        /* The error banner slides in when unhidden (animations restart on a
+           display toggle, so no JS ceremony needed). */
+        #error-banner:not(.hidden) { animation: fadeUp .35s var(--ease-out); }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #d6cfc4, #bdb4a6);
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a8a29e; }
+
+        /* --- View transitions -------------------------------------------- */
+        .tab-content { display: none; }
+        .tab-content.active {
+            display: flex;
+            /* Cream base + two drifting emerald/amber washes. */
+            background:
+                radial-gradient(60vw 55vw at 6% -10%, rgba(16, 185, 129, .12), transparent 62%),
+                radial-gradient(55vw 50vw at 104% 108%, rgba(251, 191, 36, .13), transparent 60%),
+                #faf8f4;
+            background-size: 150% 150%, 150% 150%, 100% 100%;
+            animation: tabIn .42s var(--ease-out), auroraDrift 28s ease-in-out infinite alternate;
+        }
+
+        /* --- Sidebar ------------------------------------------------------ */
+        #app-sidebar {
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(130% 60% at 0% 0%, rgba(16, 185, 129, .22), transparent 55%),
+                linear-gradient(180deg, #0c0a09 0%, #1c1917 62%, #0c0a09 100%);
+            border-right: 1px solid rgba(255, 255, 255, .06);
+        }
+        #app-sidebar::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(180deg, transparent, rgba(16, 185, 129, .11) 48%, transparent);
+            background-size: 100% 42%;
+            animation: sheen 7.5s linear infinite;
+        }
+
+        .nav-btn {
+            position: relative;
+            overflow: hidden;
+            color: #a8a29e;
+            border: 1px solid transparent;
+            transition: transform .22s var(--ease-out), background .2s, color .2s, box-shadow .28s, border-color .2s;
+        }
+        .nav-btn i { transition: transform .3s var(--ease-spring); }
+        .nav-btn::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 3px;
+            height: 0;
+            transform: translateY(-50%);
+            border-radius: 0 3px 3px 0;
+            background: linear-gradient(180deg, #6ee7b7, #059669);
+            box-shadow: 0 0 14px var(--brand-glow);
+            transition: height .28s var(--ease-out);
+        }
+        .nav-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, .06);
+            border-color: rgba(16, 185, 129, .28);
+            transform: translateX(3px);
+        }
+        .nav-btn:hover i { transform: scale(1.14); }
+        .nav-btn:hover::before { height: 52%; }
+        .nav-btn.is-active {
+            color: #fff;
+            background: linear-gradient(120deg, rgba(4, 120, 87, .96), rgba(16, 185, 129, .86));
+            border-color: rgba(110, 231, 183, .5);
+            box-shadow: 0 10px 26px rgba(5, 150, 105, .38), inset 0 1px 0 rgba(255, 255, 255, .24);
+            transform: none;
+        }
+        .nav-btn.is-active::before { height: 100%; }
+        .nav-btn.is-active i { transform: none; }
+
+        /* A hairline separating the register tabs from the back-office
+           destinations. */
+        .nav-divider {
+            height: 1px;
+            margin: 8px 6px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .16), transparent);
+        }
+
+        /* --- Header ------------------------------------------------------- */
+        #app-header {
+            position: relative;
+            background: rgba(255, 253, 249, .86);
+            backdrop-filter: blur(12px) saturate(1.25);
+        }
+        #app-header::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: -1px;
+            height: 2px;
+            background: var(--accent-band);
+            background-size: 200% 100%;
+            animation: slideLine 6.5s linear infinite;
+            opacity: .85;
+        }
+
+        /* --- Viewport: the main content must sit above the grid ----------- */
+        #app-sidebar { z-index: 2; }
+        main { z-index: 1; }
+
+        /* --- Cards, tiles, KPIs ------------------------------------------- */
+        .kpi-card {
+            position: relative;
+            overflow: hidden;
+            transition: transform .24s var(--ease-out), box-shadow .28s, border-color .2s;
+        }
+        .kpi-card::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(160px 100px at 92% 0%, rgba(16, 185, 129, .14), transparent 72%);
+            opacity: 0;
+            transition: opacity .3s;
+        }
+        .kpi-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(16, 185, 129, .32);
+            box-shadow: 0 20px 44px rgba(41, 37, 36, .12);
+        }
+        .kpi-card:hover::after { opacity: 1; }
+
+        .product-card { transition: transform .24s var(--ease-out), box-shadow .28s, border-color .2s; }
+        .product-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(16, 185, 129, .45);
+            box-shadow: 0 20px 44px rgba(5, 150, 105, .18);
+        }
+        .product-card:active { transform: translateY(-1px) scale(.985); }
+        .product-card .fa-basket-shopping { transition: transform .3s var(--ease-spring), color .25s; }
+        .product-card:hover .fa-basket-shopping { color: var(--brand); transform: scale(1.18) rotate(-7deg); }
+
+        /* Spotlight: the pointer drifts a pool of light across the numeric
+           grid so products feel touchable. The card must be a positioning
+           context — the stock badge inside already assumes absolute. */
+        .product-card { position: relative; }
+        .product-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(180px 130px at var(--mx, 50%) var(--my, 0%), rgba(16, 185, 129, .13), transparent 70%);
+            opacity: 0;
+            transition: opacity .3s;
+        }
+        .product-card:hover::before { opacity: 1; }
+
+        /* Product photography. A category glyph sits underneath the photo so
+           a missing or slow image degrades to a designed tile, not a grey box. */
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .product-media { isolation: isolate; }
+        .product-media > i { z-index: 0; }
+        .product-media::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            pointer-events: none;
+            background: linear-gradient(180deg, rgb(28 25 23 / 0%) 48%, rgb(28 25 23 / 26%) 100%);
+        }
+        .product-img {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            animation: fadeIn .5s var(--ease-out) both;
+            transition: transform .6s var(--ease-out), filter .4s;
+        }
+        .product-card:hover .product-img { transform: scale(1.09); filter: saturate(1.1); }
+
+        /* Cards rise in as the grid paints, in a quick wave rather than all
+           at once — the shelf "arriving" is what makes it feel alive. */
+        #product-grid .product-card { animation: fadeUp .45s var(--ease-out) both; }
+        #product-grid .product-card:nth-child(1) { animation-delay: .02s; }
+        #product-grid .product-card:nth-child(2) { animation-delay: .05s; }
+        #product-grid .product-card:nth-child(3) { animation-delay: .08s; }
+        #product-grid .product-card:nth-child(4) { animation-delay: .11s; }
+        #product-grid .product-card:nth-child(5) { animation-delay: .14s; }
+        #product-grid .product-card:nth-child(6) { animation-delay: .17s; }
+        #product-grid .product-card:nth-child(7) { animation-delay: .2s; }
+        #product-grid .product-card:nth-child(8) { animation-delay: .23s; }
+        #product-grid .product-card:nth-child(n+9) { animation-delay: .26s; }
+
+        /* The brand mark turns a slow conic sheen — the single "futuristic"
+           tell in the chrome. */
+        #app-sidebar .fa-store {
+            background: linear-gradient(120deg, #34d399, #fbbf24, #10b981, #34d399);
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: logoShift 9s ease infinite;
+        }
+        @keyframes logoShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+
+        /* Inventory thumbnails — the same photo, small. */
+        .inv-thumb {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            object-fit: cover;
+            border: 1px solid #e7e2da;
+            box-shadow: 0 2px 6px rgb(41 37 36 / 8%);
+        }
+        .inv-fallback {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            background: #f5f0e8;
+            color: #a8a29e;
+            font-size: 14px;
+        }
+
+        /* Add — league CTA + availability gauges (JS sets --availability). */
+        #charge-btn:not(:disabled) {
+            background: linear-gradient(100deg, #047857, #10b981 55%, #34d399);
+        }
+        .stock-gauge {
+            height: 5px;
+            border-radius: 4px;
+            background: #f5f0e8;
+            overflow: hidden;
+        }
+        .stock-gauge > i {
+            display: block;
+            height: 100%;
+            width: min(100%, max(0px, var(--availability, 0%)));
+            background: var(--accent-band);
+            animation: gaugeFill .7s var(--ease-out) both;
+        }
+
+        /* --- Charge button ------------------------------------------------ */
+        #charge-btn {
+            position: relative;
+            overflow: hidden;
+            transition: transform .16s var(--ease-out), box-shadow .28s, background .2s;
+        }
+        #charge-btn:not(:disabled) { box-shadow: 0 10px 26px rgba(5, 150, 105, .35); }
+        #charge-btn:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(5, 150, 105, .48); }
+        #charge-btn:not(:disabled)::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 38%;
+            background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .5), transparent);
+            transform: translateX(-140%);
+            animation: shimmer 2.8s ease-in-out infinite;
+        }
+
+        /* --- Payment tiles — a light band sweeps across on hover ---------- */
+        .pay-method {
+            position: relative;
+            overflow: hidden;
+            transition: transform .18s var(--ease-out), box-shadow .25s, border-color .2s, background .2s;
+        }
+        .pay-method::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(115deg, transparent 42%, rgba(16, 185, 129, .16) 50%, transparent 58%);
+            background-size: 250% 100%;
+            background-position: 0% 50%;
+            opacity: 0;
+            transition: opacity .25s;
+        }
+        .pay-method:hover::before { opacity: 1; animation: borderSweep .9s linear infinite; }
+        .pay-method:hover { transform: translateY(-2px); }
+
+        /* --- Table + list entrance — one engine for every list ------------ */
+        #recent-transactions tr, #inventory-rows tr, #customer-rows tr, .cart-line {
+            animation: fadeUp .42s var(--ease-out) both;
+        }
+        #recent-transactions tr:hover, #inventory-rows tr:hover, #customer-rows tr:hover { background: #fdfaf5; }
+        .stagger > :nth-child(1) { animation-delay: .03s; }
+        .stagger > :nth-child(2) { animation-delay: .07s; }
+        .stagger > :nth-child(3) { animation-delay: .11s; }
+        .stagger > :nth-child(4) { animation-delay: .15s; }
+        .stagger > :nth-child(5) { animation-delay: .19s; }
+        .stagger > :nth-child(6) { animation-delay: .23s; }
+        .stagger > :nth-child(n+7) { animation-delay: .27s; }
+
+        /* Cart total pops whenever it changes. */
+        #pos-total.pop { animation: popIn .34s var(--ease-spring); }
+
+        /* Status attention hooks. */
+        .live-dot { animation: livePulse 2.4s ease-out infinite; }
+        .pn-status { position: relative; }
+        .pn-status::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: 9999px;
+            pointer-events: none;
+            animation: livePulse 2.4s ease-out infinite;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: .001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: .001ms !important;
+            }
+            .tab-content.active {
+                background: #faf8f4;
+            }
+            /* The grid, vignette, spotlight and status pulses are ambient
+               decoration: switch them off rather than freeze them. */
+            body::before, body::after,
+            .product-card::before,
+            .live-dot, .pn-status::after {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden text-gray-800">
+
+    <!-- Sidebar -->
+    <aside id="app-sidebar" class="w-20 lg:w-64 bg-gray-900 text-white flex flex-col transition-all duration-300">
+        <div class="h-16 flex items-center justify-center lg:justify-start lg:px-6 border-b border-gray-800">
+            <i class="fa-solid fa-store text-emerald-400 text-2xl"></i>
+            <span class="hidden lg:block ml-3 font-bold text-lg tracking-wide">Duka POS</span>
+        </div>
+
+        <!-- Every item is a real link to its own /pos/... URL; the router
+             below intercepts plain clicks for an instant swap. -->
+        <nav class="flex-1 py-6 flex flex-col gap-2 px-3 overflow-y-auto custom-scrollbar">
+            <a href="/pos" data-tab="pos-tab" aria-current="page" class="nav-btn is-active w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-calculator text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Point of Sale</span>
+            </a>
+            <a href="/pos/dashboard" data-tab="dashboard-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-chart-pie text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Dashboard</span>
+            </a>
+            <a href="/pos/inventory" data-tab="inventory-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-box text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Inventory</span>
+            </a>
+            <a href="/pos/customers" data-tab="customers-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-users text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Customers</span>
+            </a>
+
+            <!-- In-page back-office tabs. Read-only here — editing happens on the
+                 Next.js back-office pages (/categories, /suppliers, …). These
+                 render the same API data inline so a cashier can check stock,
+                 suppliers and orders without leaving the till. -->
+            <span class="nav-divider hidden lg:block"></span>
+            <a href="/pos/categories" data-tab="categories-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-tags text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Categories</span>
+            </a>
+            <a href="/pos/suppliers" data-tab="suppliers-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-truck-fast text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Suppliers</span>
+            </a>
+            <a href="/pos/purchase-orders" data-tab="purchase-orders-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-file-invoice text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Purchase Orders</span>
+            </a>
+            <a href="/pos/stores" data-tab="stores-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-store text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Stores</span>
+            </a>
+            <a href="/pos/audit" data-tab="audit-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-shield-halved text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Audit</span>
+            </a>
+
+            <!-- Back-office destinations. These are plain links (no data-tab),
+                 so the register router leaves the native navigation alone. -->
+            <span class="nav-divider hidden lg:block"></span>
+            <a href="/reports" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-chart-line text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Reports</span>
+            </a>
+            <a href="/staff" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-user-tie text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Staff</span>
+            </a>
+            <a href="/suppliers" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-truck-fast text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Suppliers</span>
+            </a>
+            <a href="/settings" class="nav-btn w-full flex items-center p-3 rounded-lg">
+                <i class="fa-solid fa-gear text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Settings</span>
+            </a>
+
+            <button id="logout-btn" class="w-full flex items-center p-3 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white transition-colors mt-auto">
+                <i class="fa-solid fa-right-from-bracket text-xl lg:w-6"></i>
+                <span class="hidden lg:block ml-3 font-medium">Log out</span>
+            </button>
+        </nav>
+
+        <div class="p-4 border-t border-gray-800">
+            <div class="flex items-center justify-center lg:justify-start">
+                <div class="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold">DK</div>
+                <div class="hidden lg:block ml-3">
+                    <p class="text-sm font-medium">Daniel Kabete</p>
+                    <p class="text-xs text-gray-400">Admin / Cashier</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col h-screen relative">
+
+        <!-- Top Header -->
+        <header id="app-header" class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
+            <div class="flex items-center bg-gray-100 rounded-lg px-4 py-2 w-64 lg:w-96">
+                <i class="fa-solid fa-search text-gray-400"></i>
+                <input id="search-input" type="text" placeholder="Search products (F3)..." class="bg-transparent border-none outline-none ml-3 w-full text-sm placeholder-gray-400">
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="text-right mr-4 hidden md:block">
+                    <p id="current-date" class="text-sm font-semibold text-gray-700">—</p>
+                    <p id="current-time" class="text-xs text-gray-500">—</p>
+                </div>
+                <a href="/dashboard" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors" title="Next.js dashboard">
+                    <i class="fa-solid fa-chart-pie"></i>
+                </a>
+                <button id="reload-btn" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors" title="Reload data">
+                    <i class="fa-solid fa-rotate"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Error banner -->
+        <div id="error-banner" class="hidden bg-red-50 border-b border-red-200 text-red-700 text-sm px-6 py-2 flex items-center justify-between">
+            <span id="error-text"></span>
+            <button id="error-dismiss" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- VIEWS CONTAINER -->
+        <div class="flex-1 overflow-hidden relative">
+
+            <!-- ================= POS TERMINAL VIEW ================= -->
+            <div id="pos-tab" class="tab-content active h-full w-full flex flex-col lg:flex-row bg-gray-50">
+
+                <!-- Products Area (Left) -->
+                <div class="flex-1 flex flex-col h-full overflow-hidden">
+                    <!-- Categories -->
+                    <div id="category-bar" class="stagger px-6 py-4 flex gap-3 overflow-x-auto custom-scrollbar whitespace-nowrap border-b border-gray-200 bg-white">
+                        <!-- rendered by JS -->
+                    </div>
+
+                    <!-- Product Grid -->
+                    <div class="flex-1 overflow-y-auto custom-scrollbar p-6">
+                        <div id="product-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            <!-- rendered by JS -->
+                        </div>
+                        <p id="grid-empty" class="hidden text-center text-gray-400 mt-16">
+                            <i class="fa-solid fa-box-open text-3xl mb-3"></i><br>No products match.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Cart / Register Area (Right) -->
+                <div class="w-full lg:w-96 bg-white border-l border-gray-200 flex flex-col h-full shadow-lg lg:shadow-none z-20">
+                    <!-- Cart Header -->
+                    <div class="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-cart-shopping text-gray-500"></i>
+                            <h2 class="font-bold text-gray-800 text-lg">Current Order</h2>
+                        </div>
+                        <span id="order-ref" class="bg-gray-200 text-gray-700 text-xs font-bold px-2 py-1 rounded-full">New</span>
+                    </div>
+
+                    <!-- Cart Items -->
+                    <div id="cart-items" class="flex-1 overflow-y-auto custom-scrollbar p-4">
+                        <!-- rendered by JS -->
+                    </div>
+
+                    <!-- Totals & Checkout -->
+                    <div class="p-5 bg-white border-t border-gray-200">
+                        <div class="flex justify-between text-sm mb-2 text-gray-500">
+                            <span>Subtotal</span>
+                            <span id="pos-subtotal">KES 0.00</span>
+                        </div>
+                        <div class="flex justify-between text-sm mb-4 text-gray-500">
+                            <span id="tax-label">Tax</span>
+                            <span id="pos-tax">KES 0.00</span>
+                        </div>
+                        <div class="flex justify-between items-center mb-6">
+                            <span class="text-lg font-bold text-gray-800">Total</span>
+                            <span id="pos-total" class="text-2xl font-bold text-emerald-600">KES 0.00</span>
+                        </div>
+
+                        <!-- Payment Methods -->
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <button id="pay-mpesa" class="pay-method flex flex-col items-center justify-center py-3 border-2 border-emerald-500 bg-emerald-50 rounded-xl text-emerald-700 font-semibold transition-all">
+                                <i class="fa-solid fa-mobile-screen-button mb-1 text-lg"></i>
+                                M-Pesa
+                            </button>
+                            <button id="pay-cash" class="pay-method flex flex-col items-center justify-center py-3 border border-gray-200 bg-white hover:bg-gray-50 rounded-xl text-gray-600 font-medium transition-all">
+                                <i class="fa-solid fa-money-bill-wave mb-1 text-lg"></i>
+                                Cash
+                            </button>
+                        </div>
+
+                        <!-- M-Pesa STK Push Input (Visible when M-Pesa selected) -->
+                        <div id="mpesa-phone-wrap" class="mb-3 relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <span class="text-gray-500 text-sm">+254</span>
+                            </div>
+                            <input id="mpesa-phone" type="text" inputmode="numeric" placeholder="7XX XXX XXX" class="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm">
+                        </div>
+
+                        <button id="charge-btn" disabled class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-lg shadow-md shadow-emerald-500/30 transition-colors flex items-center justify-center gap-2">
+                            <span id="charge-label">Send STK Push</span>
+                            <i class="fa-solid fa-arrow-right"></i>
+                        </button>
+
+                        <div id="charge-result" class="hidden mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================= DASHBOARD OVERVIEW VIEW ================= -->
+            <div id="dashboard-tab" class="tab-content h-full w-full flex-col bg-gray-50 p-6 overflow-y-auto custom-scrollbar">
+
+                <div class="flex justify-between items-end mb-8">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Dashboard Overview</h1>
+                        <p class="text-gray-500 text-sm mt-1">Here's what's happening at your store today.</p>
+                    </div>
+                    <button id="dash-reload" class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 shadow-sm">
+                        <i class="fa-regular fa-calendar mr-2"></i> Today
+                    </button>
+                </div>
+
+                <!-- KPI Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
+                    <div class="kpi-card bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-gradient-to-br from-amber-100 to-emerald-100 flex items-center justify-center text-emerald-600">
+                            <i class="fa-solid fa-wallet text-xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-500 font-medium">Total Sales</p>
+                            <h3 id="kpi-sales" class="text-2xl font-bold text-gray-800">—</h3>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 flex items-center justify-center text-orange-600">
+                            <i class="fa-solid fa-receipt text-xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-500 font-medium">Orders</p>
+                            <h3 id="kpi-orders" class="text-2xl font-bold text-gray-800">—</h3>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-gradient-to-br from-amber-100 to-emerald-100 flex items-center justify-center text-emerald-600">
+                            <i class="fa-solid fa-users text-xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-500 font-medium">Customers</p>
+                            <h3 id="kpi-customers" class="text-2xl font-bold text-gray-800">—</h3>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+                            <i class="fa-solid fa-triangle-exclamation text-xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-500 font-medium">Low Stock</p>
+                            <h3 id="kpi-lowstock" class="text-2xl font-bold text-gray-800">—</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Transactions Table -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+                        <h3 class="font-bold text-gray-800 text-lg">Recent Transactions</h3>
+                        <span class="text-gray-400 text-sm">live from API</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                                    <th class="p-4 font-medium">Order ID</th>
+                                    <th class="p-4 font-medium">Time</th>
+                                    <th class="p-4 font-medium">Method</th>
+                                    <th class="p-4 font-medium">Amount</th>
+                                    <th class="p-4 font-medium">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-transactions" class="stagger text-sm text-gray-700">
+                                <!-- rendered by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- ================= INVENTORY VIEW ================= -->
+            <div id="inventory-tab" class="tab-content h-full w-full flex-col bg-gray-50 p-6 overflow-y-auto custom-scrollbar">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Inventory</h1>
+                        <p class="text-gray-500 text-sm mt-1">Stock on hand across all stores.</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center bg-white border border-gray-200 rounded-lg px-3 py-2 w-64">
+                            <i class="fa-solid fa-search text-gray-400 text-sm"></i>
+                            <input id="inventory-search" type="text" placeholder="Filter by name or SKU…" class="bg-transparent border-none outline-none ml-2 w-full text-sm placeholder-gray-400">
+                        </div>
+                        <button id="inventory-reload" class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 shadow-sm">
+                            <i class="fa-solid fa-rotate mr-2"></i>Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                                    <th class="p-4 font-medium">SKU</th>
+                                    <th class="p-4 font-medium">Product</th>
+                                    <th class="p-4 font-medium">Category</th>
+                                    <th class="p-4 font-medium">On hand</th>
+                                    <th class="p-4 font-medium">Price</th>
+                                    <th class="p-4 font-medium">Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventory-rows" class="stagger text-sm text-gray-700">
+                                <!-- rendered by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <p id="inventory-empty" class="hidden p-10 text-center text-gray-400">
+                        <i class="fa-solid fa-box-open text-3xl mb-3 block"></i>No stock matches.
+                    </p>
+                </div>
+            </div>
+
+            <!-- ================= CUSTOMERS VIEW ================= -->
+            <div id="customers-tab" class="tab-content h-full w-full flex-col bg-gray-50 p-6 overflow-y-auto custom-scrollbar">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Customers</h1>
+                        <p class="text-gray-500 text-sm mt-1">Walk-ins and regulars, with their lifetime spend.</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center bg-white border border-gray-200 rounded-lg px-3 py-2 w-64">
+                            <i class="fa-solid fa-search text-gray-400 text-sm"></i>
+                            <input id="customers-search" type="text" placeholder="Filter by name or phone…" class="bg-transparent border-none outline-none ml-2 w-full text-sm placeholder-gray-400">
+                        </div>
+                        <button id="customer-add-btn" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium shadow-sm">
+                            <i class="fa-solid fa-plus mr-2"></i>Add customer
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Inline add-customer form (hidden until the button is clicked) -->
+                <div id="customer-form" class="hidden bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">Name *</label>
+                            <input id="customer-name" type="text" placeholder="Full name" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">Phone</label>
+                            <input id="customer-phone" type="text" inputmode="numeric" placeholder="07XX XXX XXX" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">Email</label>
+                            <input id="customer-email" type="email" placeholder="name@example.com" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+                        </div>
+                        <div class="flex items-end gap-2">
+                            <button id="customer-save" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-semibold">Save</button>
+                            <button id="customer-cancel" class="py-2 px-4 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                                    <th class="p-4 font-medium">Name</th>
+                                    <th class="p-4 font-medium">Phone</th>
+                                    <th class="p-4 font-medium">Email</th>
+                                    <th class="p-4 font-medium">Orders</th>
+                                    <th class="p-4 font-medium">Lifetime spend</th>
+                                </tr>
+                            </thead>
+                            <tbody id="customer-rows" class="stagger text-sm text-gray-700">
+                                <!-- rendered by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <p id="customers-empty" class="hidden p-10 text-center text-gray-400">
+                        <i class="fa-solid fa-users text-3xl mb-3 block"></i>No customers match.
+                    </p>
+                </div>
+            </div>
+
+            <!-- ================= CATEGORIES VIEW ================= -->
+            <div id="categories-tab" class="tab-content h-full w-full flex-col bg-gray-50 p-6 overflow-y-auto custom-scrollbar">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Categories</h1>
+                        <p class="text-gray-500 text-sm mt-1">How the catalog is grouped on the register.</p>
+                    </div>
+                    <a href="/categories" class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 shadow-sm">
+                        <i class="fa-solid fa-pen-to-square mr-2"></i>Manage
+                    </a>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                                    <th class="p-4 font-medium">Category</th>
+                                    <th class="p-4 font-medium">Parent</th>
+                                    <th class="p-4 font-medium">Products</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categories-rows" class="stagger text-sm text-gray-700">
+                                <!-- rendered by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <p id="categories-empty" class="hidden p-10 text-center text-gray-400">
+                        <i class="fa-solid fa-tags text-3xl mb-3 block"></i>No categories yet.
+                    </p>
+                </div>
+            </div>
+
+            <!-- ================= SUPPLIERS VIEW ================= -->
+            <div id="suppliers-tab" class="tab-content h-full w-full flex-col bg-gray-50 p-6 overflow-y-auto custom-scrollbar">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Suppliers</h1>
+                        <p class="text-gray-500 text-sm mt-1">The businesses that keep your shelves full.</p>
+                    </div>
+                    <a href="/suppliers" class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 shadow-sm">
+                        <i class="fa-solid fa-pen-to-square mr-2"></i>Manage
+                    </a>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                                    <th class="p-4 font-medium">Supplier</th>
+                                    <th class="p-4 font-medium">Contact</th>
+                                    <th class="p-4 font-medium">Orders</th>
+                                    <th class="p-4 font-medium">On file since</th>
+                                </tr>
+                            </thead>
+                            <tbody id="suppliers-rows" class="stagger text-sm text-gray-700">
+                                <!-- rendered by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <p id="suppliers-empty" class="hidden p-10 text-center text-gray-400">
+                        <i class="fa-solid fa-truck-fast text-3xl mb-3 block"></i>No suppliers yet.
+                    </p>
+                </div>
+            </div>
+
+            <!-- ================= PURCHASE ORDERS VIEW ================= -->
+            <div id="purchase-orders-tab" class="tab-content h-full w-full flex-col bg-gray-50 p-6 overflow-y-auto custom-scrollbar">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Purchase Orders</h1>
+                        <p class="text-gray-500 text-sm mt-1">Restocking in flight, from draft to received.</p>
+                    </div>
+                    <a href="/purchase-orders" class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 shadow-sm">
+                        <i class="fa-solid fa-pen-to-square mr-2"></i>Manage
+                    </a>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                        <p class="text-sm text-gray-500">Orders</p>
+                        <p id="po-count" class="text-2xl font-bold text-gray-800">—</p>
+                    </div>
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                        <p class="text-sm text-gray-500">Awaiting delivery</p>
+                        <p id="po-open" class="text-2xl font-bold text-orange-600">—</p>
+                    </div>
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                        <p class="text-sm text-gray-500">Total value</p>
+                        <p id="po-value" class="text-2xl font-bold text-emerald-600">—</p>
+                    </div>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                                    <th class="p-4 font-medium">Order</th>
+                                    <th class="p-4 font-medium">Supplier</th>
+                                    <th class="p-4 font-medium">Lines</th>
+                                    <th class="p-4 font-medium">Value</th>
+                                    <th class="p-4 font-medium">Placed</th>
+                                    <th class="p-4 font-medium">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="po-rows" class="stagger text-sm text-gray-700">
+                                <!-- rendered by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <p id="po-empty" class="hidden p-10 text-center text-gray-400">
+                        <i class="fa-solid fa-file-invoice text-3xl mb-3 block"></i>No purchase orders yet.
+                    </p>
+                </div>
+            </div>
+
+            <!-- ================= STORES VIEW ================= -->
+            <div id="stores-tab" class="tab-content h-full w-full flex-col bg-gray-50 p-6 overflow-y-auto custom-scrollbar">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Stores</h1>
+                        <p class="text-gray-500 text-sm mt-1">Every location and the tills inside it.</p>
+                    </div>
+                    <a href="/stores" class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 shadow-sm">
+                        <i class="fa-solid fa-pen-to-square mr-2"></i>Manage
+                    </a>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                        <p class="text-sm text-gray-500">Stores</p>
+                        <p id="store-count" class="text-2xl font-bold text-gray-800">—</p>
+                    </div>
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                        <p class="text-sm text-gray-500">Registers</p>
+                        <p id="register-count" class="text-2xl font-bold text-gray-800">—</p>
+                    </div>
+                </div>
+                <div id="stores-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- rendered by JS -->
+                </div>
+                <p id="stores-empty" class="hidden p-10 text-center text-gray-400">
+                    <i class="fa-solid fa-store text-3xl mb-3 block"></i>No stores yet.
+                </p>
+            </div>
+
+            <!-- ================= AUDIT VIEW ================= -->
+            <div id="audit-tab" class="tab-content h-full w-full flex-col bg-gray-50 p-6 overflow-y-auto custom-scrollbar">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">Audit log</h1>
+                        <p class="text-gray-500 text-sm mt-1">An append-only record of every change that matters.</p>
+                    </div>
+                    <a href="/audit" class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 shadow-sm">
+                        <i class="fa-solid fa-arrow-up-right-from-square mr-2"></i>Full log
+                    </a>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                                    <th class="p-4 font-medium">When</th>
+                                    <th class="p-4 font-medium">Action</th>
+                                    <th class="p-4 font-medium">Entity</th>
+                                    <th class="p-4 font-medium">Actor</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-rows" class="stagger text-sm text-gray-700">
+                                <!-- rendered by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <p id="audit-empty" class="hidden p-10 text-center text-gray-400">
+                        <i class="fa-solid fa-shield-halved text-3xl mb-3 block"></i>Nothing recorded yet.
+                    </p>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+    (function () {
+        "use strict";
+
+        // ------------------------------------------------------------------
+        // Configuration & session
+        // ------------------------------------------------------------------
+        // The API base. Default "/api" — same-origin through the Next.js
+        // proxy (next.config.mjs rewrites /api/* upstream), so there is no
+        // CORS step and it works from any host, including a phone on the
+        // LAN. Override with window.__API_URL__ to target the API directly
+        // (its CORS must then allow that origin).
+        var API_URL = (window.__API_URL__ || "/api").replace(/\/$/, "");
+        var TOKEN_KEY = "pos.accessToken"; // same key the Next.js login page uses
+
+        function token() { return localStorage.getItem(TOKEN_KEY); }
+
+        // Auth gate: the Next.js app (/login) issues the token on the same
+        // origin, so it is shared with this page. No token → go log in.
+        if (!token()) { window.location.href = "/login"; return; }
+
+        var $ = function (id) { return document.getElementById(id); };
+
+        function showError(message) {
+            $("error-text").textContent = message;
+            $("error-banner").classList.remove("hidden");
+        }
+        $("error-dismiss").addEventListener("click", function () {
+            $("error-banner").classList.add("hidden");
+        });
+
+        async function api(path, options) {
+            options = options || {};
+            var res = await fetch(API_URL + path, {
+                method: options.method || "GET",
+                headers: Object.assign(
+                    { "content-type": "application/json" },
+                    token() ? { authorization: "Bearer " + token() } : {}
+                ),
+                body: options.body ? JSON.stringify(options.body) : undefined,
+            });
+            if (res.status === 401) { // session expired → re-authenticate
+                localStorage.removeItem(TOKEN_KEY);
+                window.location.href = "/login";
+                return;
+            }
+            var body = await res.json().catch(function () { return null; });
+            if (!res.ok) {
+                var message = (body && body.error && body.error.message) || ("request failed (" + res.status + ")");
+                throw new Error(message);
+            }
+            return body;
+        }
+
+        // Money: integer minor units in, "KES x.xx" out — same convention as
+        // @pos/money. Tax math below mirrors computeSaleTotals: per-line,
+        // discount-before-tax, half-up rounding. The server recomputes both
+        // at charge time and is the source of truth.
+        var KES = new Intl.NumberFormat("en-KE", { style: "currency", currency: "KES" });
+        function fmt(minor) { return KES.format((minor || 0) / 100); }
+        function lineTax(subtotalMinor, discountMinor, bp) {
+            return Math.round(((subtotalMinor - discountMinor) * bp) / 10000);
+        }
+
+        // ------------------------------------------------------------------
+        // State
+        // ------------------------------------------------------------------
+        var products = [];
+        var taxRateBasisPoints = 0;
+        var activeCategory = null; // null = All Items
+        var searchTerm = "";
+        var cart = {}; // variantId -> { product, qty }
+        var paymentMethod = "MPESA";
+        var lastTotalMinor = null; // drives the total's pop animation
+
+        // ------------------------------------------------------------------
+        // View router — every sidebar item is a real URL under /pos
+        // ------------------------------------------------------------------
+        // The path is the source of truth: /pos, /pos/dashboard,
+        // /pos/inventory, /pos/customers (next.config.mjs rewrites each back
+        // to this same document). Deep links and refreshes land on the right
+        // view; plain clicks swap instantly without a reload.
+        var TAB_ROUTES = {
+            "pos-tab": "/pos",
+            "dashboard-tab": "/pos/dashboard",
+            "inventory-tab": "/pos/inventory",
+            "customers-tab": "/pos/customers",
+            "categories-tab": "/pos/categories",
+            "suppliers-tab": "/pos/suppliers",
+            "purchase-orders-tab": "/pos/purchase-orders",
+            "stores-tab": "/pos/stores",
+            "audit-tab": "/pos/audit",
+        };
+        var TAB_TITLES = {
+            "pos-tab": "Point of Sale",
+            "dashboard-tab": "Dashboard",
+            "inventory-tab": "Inventory",
+            "customers-tab": "Customers",
+            "categories-tab": "Categories",
+            "suppliers-tab": "Suppliers",
+            "purchase-orders-tab": "Purchase Orders",
+            "stores-tab": "Stores",
+            "audit-tab": "Audit Log",
+        };
+
+        // Current pathname → tab id (unknown/extra segments fall back to POS).
+        function tabFromPath(pathname) {
+            var path = (pathname || "/pos").replace(/\/+$/, "") || "/pos";
+            for (var tab in TAB_ROUTES) {
+                if (TAB_ROUTES[tab] === path) return tab;
+            }
+            return "pos-tab";
+        }
+
+        function switchTab(tabId, options) {
+            options = options || {};
+            if (!TAB_ROUTES[tabId]) tabId = "pos-tab";
+
+            document.querySelectorAll(".tab-content").forEach(function (tab) {
+                tab.classList.remove("active");
+            });
+            document.querySelectorAll(".nav-btn[data-tab]").forEach(function (btn) {
+                var isActive = btn.getAttribute("data-tab") === tabId;
+                btn.classList.toggle("is-active", isActive);
+                if (isActive) btn.setAttribute("aria-current", "page");
+                else btn.removeAttribute("aria-current");
+            });
+
+            var tabEl = $(tabId);
+            if (tabEl) tabEl.classList.add("active");
+            document.title = "Duka POS — " + (TAB_TITLES[tabId] || "Register");
+
+            if (tabId === "dashboard-tab") loadDashboard();
+            if (tabId === "inventory-tab") loadInventory();
+            if (tabId === "customers-tab") loadCustomers();
+            if (tabId === "categories-tab") loadCategories();
+            if (tabId === "suppliers-tab") loadSuppliers();
+            if (tabId === "purchase-orders-tab") loadPurchaseOrders();
+            if (tabId === "stores-tab") loadStores();
+            if (tabId === "audit-tab") loadAudit();
+
+            // Keep the address bar in step. Boot/popstate pass options so we
+            // replace (or leave alone) rather than stacking history entries.
+            var route = TAB_ROUTES[tabId];
+            if (route && route !== window.location.pathname) {
+                if (options.replace) window.history.replaceState({ tab: tabId }, "", route);
+                else if (!options.silent) window.history.pushState({ tab: tabId }, "", route);
+            }
+        }
+
+        document.querySelectorAll(".nav-btn[data-tab]").forEach(function (btn) {
+            btn.addEventListener("click", function (e) {
+                // These are real <a href> links: modifier-clicks (new tab,
+                // download…) keep native behaviour.
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                switchTab(btn.getAttribute("data-tab"));
+            });
+        });
+
+        // Browser back/forward moves between register views. The URL has
+        // already changed by the time popstate fires, so no push is needed.
+        window.addEventListener("popstate", function () {
+            switchTab(tabFromPath(window.location.pathname), { silent: true });
+        });
+
+        // ------------------------------------------------------------------
+        // Catalog (products + categories)
+        // ------------------------------------------------------------------
+        async function loadCatalog() {
+            try {
+                var data = await api("/catalog");
+                products = data.products || [];
+                taxRateBasisPoints = data.taxRateBasisPoints || 0;
+                $("tax-label").textContent =
+                    taxRateBasisPoints > 0 ? "Tax (" + (taxRateBasisPoints / 100) + "%)" : "Tax";
+                renderCategories();
+                renderGrid();
+                renderCart(); // prices may have changed
+            } catch (err) { showError(err.message); }
+        }
+
+        // Pointer position as CSS vars (--mx/--my), read by the product
+        // cards' spotlight. Recomposition-only: no repaint, no layout work.
+        var grid = $("product-grid");
+        grid.addEventListener("pointermove", function (e) {
+            var card = e.target.closest(".product-card");
+            if (!card) return;
+            var rect = card.getBoundingClientRect();
+            card.style.setProperty("--mx", ((e.clientX - rect.left) / rect.width * 100) + "%");
+            card.style.setProperty("--my", ((e.clientY - rect.top) / rect.height * 100) + "%");
+        });
+
+        function renderCategories() {
+            var bar = $("category-bar");
+            bar.innerHTML = "";
+            var names = [];
+            products.forEach(function (p) {
+                if (p.categoryName && names.indexOf(p.categoryName) === -1) names.push(p.categoryName);
+            });
+
+            function chip(label, category) {
+                var active = activeCategory === category;
+                var btn = document.createElement("button");
+                btn.className = "px-5 py-2 rounded-full text-sm font-medium transition-colors " +
+                    (active ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200");
+                btn.textContent = label;
+                btn.addEventListener("click", function () {
+                    activeCategory = category;
+                    renderCategories(); renderGrid();
+                });
+                return btn;
+            }
+
+            bar.appendChild(chip("All Items", null));
+            names.forEach(function (name) { bar.appendChild(chip(name, name)); });
+        }
+
+        function visibleProducts() {
+            return products.filter(function (p) {
+                var inCategory = !activeCategory || p.categoryName === activeCategory;
+                var matches = !searchTerm ||
+                    p.name.toLowerCase().indexOf(searchTerm) !== -1 ||
+                    p.sku.toLowerCase().indexOf(searchTerm) !== -1 ||
+                    (p.barcode || "").indexOf(searchTerm) !== -1;
+                return inCategory && matches;
+            });
+        }
+
+        function renderGrid() {
+            var grid = $("product-grid");
+            var list = visibleProducts();
+            $("grid-empty").classList.toggle("hidden", list.length > 0);
+            grid.innerHTML = "";
+            list.forEach(function (p) {
+                var card = document.createElement("div");
+                card.className = "product-card bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden cursor-pointer";
+
+                // Availability gauge under the price: full band = healthy,
+                // thin band = running out. Percent of a 20-unit shelf.
+                var availability = Math.max(0, Math.min(100, Math.round((p.onHand / 20) * 100)));
+
+                var stockBadge = p.onHand > 0
+                    ? '<span class="absolute top-2 right-2 bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded">' + p.onHand + ' in stock</span>'
+                    : '<span class="absolute top-2 right-2 bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded">out</span>';
+                var media = p.imageUrl
+                    ? '<img class="product-img" src="' + escapeHtml(p.imageUrl) + '" alt="' + escapeHtml(p.name) + '" loading="lazy" onerror="this.remove()">'
+                    : "";
+                card.innerHTML =
+                    '<div class="product-media h-32 bg-gray-100 flex items-center justify-center relative overflow-hidden">' +
+                        '<i class="fa-solid fa-basket-shopping text-3xl text-gray-300"></i>' + media + stockBadge +
+                    "</div>" +
+                    '<div class="p-4">' +
+                        '<h3 class="font-semibold text-gray-800 truncate">' + escapeHtml(p.name) + "</h3>" +
+                        '<p class="text-emerald-600 font-bold mt-1">' + fmt(p.priceMinor) + "</p>" +
+                        '<div class="stock-gauge mt-2" title="' + p.onHand + ' in stock"><i style="--availability:' + availability + '%"></i></div>' +
+                    "</div>";
+                card.addEventListener("click", function () { addToCart(p); });
+                grid.appendChild(card);
+            });
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+                return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+            });
+        }
+
+        // ------------------------------------------------------------------
+        // Cart
+        // ------------------------------------------------------------------
+        function addToCart(p) {
+            if (!cart[p.id]) cart[p.id] = { product: p, qty: 0 };
+            cart[p.id].qty += 1;
+            renderCart();
+        }
+        function setQty(id, qty) {
+            if (!cart[id]) return;
+            cart[id].qty = qty;
+            if (cart[id].qty <= 0) delete cart[id];
+            renderCart();
+        }
+
+        function cartLines() {
+            return Object.keys(cart).map(function (id) { return cart[id]; });
+        }
+
+        // Mirrors @pos/money.computeSaleTotals (per-line, half-up). Display
+        // only — the server decides the real totals at charge time.
+        function totals() {
+            var subtotal = 0, tax = 0;
+            cartLines().forEach(function (line) {
+                var lineSubtotal = line.product.priceMinor * line.qty;
+                subtotal += lineSubtotal;
+                tax += lineTax(lineSubtotal, 0, taxRateBasisPoints);
+            });
+            return { subtotalMinor: subtotal, taxMinor: tax, totalMinor: subtotal + tax };
+        }
+
+        function renderCart() {
+            var wrap = $("cart-items");
+            var lines = cartLines();
+            if (lines.length === 0) {
+                wrap.innerHTML =
+                    '<div class="text-center text-gray-400 mt-16">' +
+                    '<i class="fa-solid fa-cart-plus text-3xl mb-3"></i>' +
+                    "<p>Tap a product to start an order</p></div>";
+            } else {
+                wrap.innerHTML = "";
+                lines.forEach(function (line) {
+                    var row = document.createElement("div");
+                    row.className = "cart-line flex justify-between items-center mb-4 pb-4 border-b border-gray-100";
+                    row.innerHTML =
+                        '<div class="flex-1">' +
+                            '<h4 class="font-medium text-sm text-gray-800">' + escapeHtml(line.product.name) + "</h4>" +
+                            '<p class="text-xs text-gray-500">' + fmt(line.product.priceMinor) + "</p>" +
+                        "</div>";
+                    var controls = document.createElement("div");
+                    controls.className = "flex items-center gap-3";
+
+                    var stepper = document.createElement("div");
+                    stepper.className = "flex items-center border border-gray-200 rounded-lg bg-gray-50";
+                    var minus = document.createElement("button");
+                    minus.className = "w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-800";
+                    minus.innerHTML = '<i class="fa-solid fa-minus text-xs"></i>';
+                    var qty = document.createElement("span");
+                    qty.className = "w-6 text-center text-sm font-medium";
+                    qty.textContent = line.qty;
+                    var plus = document.createElement("button");
+                    plus.className = "w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-800";
+                    plus.innerHTML = '<i class="fa-solid fa-plus text-xs"></i>';
+                    minus.addEventListener("click", function () { setQty(line.product.id, line.qty - 1); });
+                    plus.addEventListener("click", function () { setQty(line.product.id, line.qty + 1); });
+                    stepper.appendChild(minus); stepper.appendChild(qty); stepper.appendChild(plus);
+
+                    var amount = document.createElement("p");
+                    amount.className = "font-semibold text-sm w-16 text-right";
+                    amount.textContent = fmt(line.product.priceMinor * line.qty);
+
+                    var trash = document.createElement("button");
+                    trash.className = "text-red-400 hover:text-red-600 ml-1";
+                    trash.innerHTML = '<i class="fa-solid fa-trash-can text-sm"></i>';
+                    trash.addEventListener("click", function () { setQty(line.product.id, 0); });
+
+                    controls.appendChild(stepper); controls.appendChild(amount); controls.appendChild(trash);
+                    row.appendChild(controls);
+                    wrap.appendChild(row);
+                });
+            }
+
+            var t = totals();
+            $("pos-subtotal").textContent = fmt(t.subtotalMinor);
+            $("pos-tax").textContent = fmt(t.taxMinor);
+
+            var totalEl = $("pos-total");
+            totalEl.textContent = fmt(t.totalMinor);
+            if (lastTotalMinor !== null && lastTotalMinor !== t.totalMinor) {
+                totalEl.classList.remove("pop");
+                void totalEl.offsetWidth; // reflow → restart the keyframe
+                totalEl.classList.add("pop");
+            }
+            lastTotalMinor = t.totalMinor;
+
+            $("charge-btn").disabled = lines.length === 0;
+        }
+
+        // ------------------------------------------------------------------
+        // Payment & charge
+        // ------------------------------------------------------------------
+        function setPaymentMethod(method) {
+            paymentMethod = method;
+            var mpesa = method === "MPESA";
+            $("pay-mpesa").className = "pay-method flex flex-col items-center justify-center py-3 rounded-xl font-semibold transition-all " +
+                (mpesa ? "border-2 border-emerald-500 bg-emerald-50 text-emerald-700" : "border border-gray-200 bg-white hover:bg-gray-50 text-gray-600");
+            $("pay-cash").className = "pay-method flex flex-col items-center justify-center py-3 rounded-xl font-semibold transition-all " +
+                (!mpesa ? "border-2 border-emerald-500 bg-emerald-50 text-emerald-700" : "border border-gray-200 bg-white hover:bg-gray-50 text-gray-600");
+            $("mpesa-phone-wrap").style.display = mpesa ? "block" : "none";
+            $("charge-label").textContent = mpesa ? "Send STK Push" : "Charge Cash";
+        }
+        $("pay-mpesa").addEventListener("click", function () { setPaymentMethod("MPESA"); });
+        $("pay-cash").addEventListener("click", function () { setPaymentMethod("CASH"); });
+
+        // Kenyan MSISDN normalisation: 07XX / 01XX → 2547/2541XXXXXXXX.
+        function normalizePhone(raw) {
+            var digits = (raw || "").replace(/\D/g, "");
+            if (/^0[17]\d{8}$/.test(digits)) return "254" + digits.slice(1);
+            if (/^254[17]\d{8}$/.test(digits)) return digits;
+            if (/^[17]\d{8}$/.test(digits)) return "254" + digits;
+            return null;
+        }
+
+        $("charge-btn").addEventListener("click", async function () {
+            var lines = cartLines();
+            if (lines.length === 0) return;
+
+            var t = totals();
+            var payment = { method: paymentMethod, amountMinor: t.totalMinor };
+            if (paymentMethod === "MPESA") {
+                var phone = normalizePhone($("mpesa-phone").value);
+                if (!phone) { showError("Enter a valid Kenyan phone number (e.g. 0712 345 678)."); return; }
+                payment.phoneNumber = phone;
+            }
+
+            var btn = $("charge-btn");
+            var originalLabel = $("charge-label").textContent;
+            btn.disabled = true;
+            $("charge-label").textContent = "Processing…";
+            try {
+                var sale = await api("/sales", {
+                    method: "POST",
+                    body: {
+                        // Generated once per attempt; a retry with the same id
+                        // replays instead of double-charging (server rule).
+                        clientId: crypto.randomUUID(),
+                        registerId: REGISTER_ID,
+                        items: lines.map(function (line) {
+                            return { variantId: line.product.id, quantity: line.qty, unitPrice: line.product.priceMinor };
+                        }),
+                        payment: payment,
+                    },
+                });
+
+                cart = {};
+                renderCart();
+                $("charge-result").classList.remove("hidden");
+                $("charge-result").innerHTML =
+                    "<strong>Sale " + escapeHtml((sale.id || "").slice(0, 8).toUpperCase()) + " recorded.</strong><br>" +
+                    fmt(sale.totalMinor) + " via " + paymentMethod +
+                    (paymentMethod === "MPESA" ? " — awaiting confirmation." : " — cash received.");
+                $("order-ref").textContent = "#" + (sale.id || "").slice(0, 8).toUpperCase();
+                loadCatalog(); // refresh stock badges
+            } catch (err) {
+                showError(err.message);
+            } finally {
+                btn.disabled = false;
+                $("charge-label").textContent = originalLabel;
+            }
+        });
+
+        // The register the cashier is logged into (seeded "Till 1"). Multi-
+        // register selection arrives with the cash-session slice.
+        var REGISTER_ID = "00000000-0000-0000-0000-000000000003";
+
+        // ------------------------------------------------------------------
+        // Dashboard
+        // ------------------------------------------------------------------
+        async function loadDashboard() {
+            try {
+                var data = await api("/reports/overview");
+                $("kpi-sales").textContent = fmt(data.totalSalesMinor);
+                $("kpi-orders").textContent = data.orderCount;
+                $("kpi-customers").textContent = data.customerCount;
+                $("kpi-lowstock").textContent = data.lowStockCount;
+
+                var tbody = $("recent-transactions");
+                tbody.innerHTML = "";
+                (data.recentTransactions || []).forEach(function (tx) {
+                    var tr = document.createElement("tr");
+                    tr.className = "border-b border-gray-50 hover:bg-gray-50";
+                    var method = tx.method === "MPESA"
+                        ? '<span class="flex items-center gap-2"><i class="fa-solid fa-mobile-screen-button text-emerald-500"></i> M-Pesa</span>'
+                        : tx.method === "CASH"
+                            ? '<span class="flex items-center gap-2"><i class="fa-solid fa-money-bill-wave text-gray-400"></i> Cash</span>'
+                            : '<span class="text-gray-400">—</span>';
+                    var confirmed = tx.paymentStatus === "CONFIRMED";
+                    // M-Pesa rows keep a soft pulse until Daraja confirms,
+                    // so a cashier sees money-in-transit at a glance.
+                    var status = tx.paymentStatus
+                        ? '<span class="' + (confirmed
+                            ? "bg-emerald-100 text-emerald-700 py-1 px-3 rounded-full text-xs font-semibold"
+                            : "pn-status bg-amber-100 text-amber-700 py-1 px-3 rounded-full text-xs font-semibold flex items-center gap-1 w-fit") + '">' +
+                          (confirmed ? "Confirmed" : '<i class="fa-solid fa-spinner fa-spin"></i> Pending') + "</span>"
+                        : '<span class="text-gray-400">unpaid</span>';
+                    var time = new Date(tx.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                    tr.innerHTML =
+                        '<td class="p-4 font-medium text-gray-900">#' + escapeHtml(tx.id.slice(0, 8).toUpperCase()) + "</td>" +
+                        '<td class="p-4 text-gray-500">' + time + "</td>" +
+                        '<td class="p-4">' + method + "</td>" +
+                        '<td class="p-4 font-medium">' + fmt(tx.totalMinor) + "</td>" +
+                        '<td class="p-4">' + status + "</td>";
+                    tbody.appendChild(tr);
+                });
+                if (!data.recentTransactions || data.recentTransactions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-400">No sales yet today.</td></tr>';
+                }
+            } catch (err) { showError(err.message); }
+        }
+        $("dash-reload").addEventListener("click", loadDashboard);
+
+        // ------------------------------------------------------------------
+        // Inventory tab
+        // ------------------------------------------------------------------
+        var inventoryItems = [];
+        var inventorySearch = "";
+
+        async function loadInventory() {
+            try {
+                var data = await api("/inventory");
+                inventoryItems = data.items || [];
+                renderInventory();
+            } catch (err) { showError(err.message); }
+        }
+
+        function renderInventory() {
+            var tbody = $("inventory-rows");
+            var term = inventorySearch.toLowerCase();
+            var list = inventoryItems.filter(function (item) {
+                return !term ||
+                    item.name.toLowerCase().indexOf(term) !== -1 ||
+                    item.sku.toLowerCase().indexOf(term) !== -1;
+            });
+
+            tbody.innerHTML = "";
+            list.forEach(function (item) {
+                var tr = document.createElement("tr");
+                tr.className = "border-b border-gray-50 hover:bg-gray-50";
+                var stockCell = item.onHand <= 0
+                    ? '<span class="bg-red-100 text-red-700 py-1 px-3 rounded-full text-xs font-semibold">out of stock</span>'
+                    : item.onHand <= 5
+                        ? '<span class="bg-amber-100 text-amber-700 py-1 px-3 rounded-full text-xs font-semibold">' + item.onHand + " · low</span>"
+                        : '<span class="bg-emerald-100 text-emerald-700 py-1 px-3 rounded-full text-xs font-semibold">' + item.onHand + "</span>";
+                var time = item.updatedAt
+                    ? new Date(item.updatedAt).toLocaleDateString([], { day: "numeric", month: "short" })
+                    : "—";
+                var thumb = item.imageUrl
+                    ? '<img class="inv-thumb" src="' + escapeHtml(item.imageUrl) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
+                    : '<span class="inv-fallback"><i class="fa-solid fa-box"></i></span>';
+                tr.innerHTML =
+                    '<td class="p-4 text-gray-500 font-mono text-xs">' + escapeHtml(item.sku) + "</td>" +
+                    '<td class="p-4"><div class="flex items-center gap-3">' + thumb +
+                        '<span class="font-medium text-gray-900">' + escapeHtml(item.name) + "</span></div></td>" +
+                    '<td class="p-4 text-gray-500">' + escapeHtml(item.categoryName || "—") + "</td>" +
+                    '<td class="p-4">' + stockCell + "</td>" +
+                    '<td class="p-4 font-medium">' + fmt(item.priceMinor) + "</td>" +
+                    '<td class="p-4 text-gray-500">' + time + "</td>";
+                tbody.appendChild(tr);
+            });
+            $("inventory-empty").classList.toggle("hidden", list.length > 0);
+        }
+
+        $("inventory-search").addEventListener("input", function (e) {
+            inventorySearch = e.target.value.trim();
+            renderInventory();
+        });
+        $("inventory-reload").addEventListener("click", loadInventory);
+
+        // ------------------------------------------------------------------
+        // Customers tab
+        // ------------------------------------------------------------------
+        var customers = [];
+        var customersSearch = "";
+
+        async function loadCustomers() {
+            try {
+                var data = await api("/customers");
+                customers = data.customers || [];
+                renderCustomers();
+            } catch (err) { showError(err.message); }
+        }
+
+        function renderCustomers() {
+            var tbody = $("customer-rows");
+            var term = customersSearch.toLowerCase();
+            var list = customers.filter(function (c) {
+                return !term ||
+                    c.name.toLowerCase().indexOf(term) !== -1 ||
+                    (c.phone || "").indexOf(term) !== -1;
+            });
+
+            tbody.innerHTML = "";
+            list.forEach(function (c) {
+                var tr = document.createElement("tr");
+                tr.className = "border-b border-gray-50 hover:bg-gray-50";
+                var avatar = c.name.trim().split(/\s+/).map(function (w) { return w[0]; }).slice(0, 2).join("").toUpperCase();
+                tr.innerHTML =
+                    '<td class="p-4"><div class="flex items-center gap-3">' +
+                        '<div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">' + escapeHtml(avatar) + "</div>" +
+                        '<span class="font-medium text-gray-900">' + escapeHtml(c.name) + "</span></div></td>" +
+                    '<td class="p-4 text-gray-500">' + escapeHtml(c.phone || "—") + "</td>" +
+                    '<td class="p-4 text-gray-500">' + escapeHtml(c.email || "—") + "</td>" +
+                    '<td class="p-4">' + c.orderCount + "</td>" +
+                    '<td class="p-4 font-medium">' + fmt(c.spendMinor) + "</td>";
+                tbody.appendChild(tr);
+            });
+            $("customers-empty").classList.toggle("hidden", list.length > 0);
+        }
+
+        $("customers-search").addEventListener("input", function (e) {
+            customersSearch = e.target.value.trim();
+            renderCustomers();
+        });
+
+        // Inline add-customer form. Phone is normalised to 2547XXXXXXXX — the
+        // same rule the register and the API contract use.
+        $("customer-add-btn").addEventListener("click", function () {
+            $("customer-form").classList.toggle("hidden");
+            $("customer-name").focus();
+        });
+        $("customer-cancel").addEventListener("click", function () {
+            $("customer-form").classList.add("hidden");
+        });
+        $("customer-save").addEventListener("click", async function () {
+            var btn = $("customer-save");
+            var name = $("customer-name").value.trim();
+            if (!name) { showError("Customer name is required."); return; }
+            var phone = normalizePhone($("customer-phone").value);
+            if ($("customer-phone").value.trim() && !phone) {
+                showError("Phone must be a valid Kenyan number (e.g. 0712 345 678).");
+                return;
+            }
+            var body = { name: name };
+            if (phone) body.phone = phone;
+            var email = $("customer-email").value.trim();
+            if (email) body.email = email;
+
+            btn.disabled = true;
+            try {
+                await api("/customers", { method: "POST", body: body });
+                $("customer-name").value = ""; $("customer-phone").value = ""; $("customer-email").value = "";
+                $("customer-form").classList.add("hidden");
+                await loadCustomers();
+            } catch (err) { showError(err.message); }
+            finally { btn.disabled = false; }
+        });
+
+        // ------------------------------------------------------------------
+        // Categories tab (read-only — edit on /categories)
+        // ------------------------------------------------------------------
+        var categories = [];
+
+        async function loadCategories() {
+            try {
+                var data = await api("/categories");
+                categories = data.categories || [];
+                renderCategoriesList();
+            } catch (err) { showError(err.message); }
+        }
+
+        function renderCategoriesList() {
+            var tbody = $("categories-rows");
+            tbody.innerHTML = "";
+            categories.forEach(function (c) {
+                var tr = document.createElement("tr");
+                tr.className = "border-b border-gray-50 hover:bg-gray-50";
+                var pad = c.parentName ? "style=\"padding-left:18px\"" : "";
+                tr.innerHTML =
+                    '<td class="p-4" ' + pad + '><span class="font-medium text-gray-900">' + escapeHtml(c.name) + "</span></td>" +
+                    '<td class="p-4 text-gray-500">' + (c.parentName ?? "—") + "</td>" +
+                    '<td class="p-4"><span class="badge">' + c.productCount + "</span></td>";
+                tbody.appendChild(tr);
+            });
+            $("categories-empty").classList.toggle("hidden", categories.length > 0);
+        }
+
+        // ------------------------------------------------------------------
+        // Suppliers tab (read-only — edit on /suppliers)
+        // ------------------------------------------------------------------
+        var suppliers = [];
+
+        async function loadSuppliers() {
+            try {
+                var data = await api("/suppliers");
+                suppliers = data.suppliers || [];
+                renderSuppliersList();
+            } catch (err) { showError(err.message); }
+        }
+
+        function contactLine(info) {
+            if (!info || typeof info !== "object") return "—";
+            var record = info;
+            var parts = [];
+            if (record.email && typeof record.email === "string") parts.push(record.email);
+            if (record.phone && typeof record.phone === "string") parts.push(record.phone);
+            return parts.length > 0 ? parts.join(" · ") : "—";
+        }
+
+        function renderSuppliersList() {
+            var tbody = $("suppliers-rows");
+            tbody.innerHTML = "";
+            suppliers.forEach(function (s) {
+                var tr = document.createElement("tr");
+                tr.className = "border-b border-gray-50 hover:bg-gray-50";
+                tr.innerHTML =
+                    '<td class="p-4"><div class="flex items-center gap-3">' +
+                        '<span class="thumb-fallback">🚚</span>' +
+                        '<span class="font-medium text-gray-900">' + escapeHtml(s.name) + "</span></div></td>" +
+                    '<td class="p-4 text-gray-500">' + contactLine(s.contactInfo) + "</td>" +
+                    '<td class="p-4"><span class="badge">' + s.purchaseOrderCount + "</span></td>" +
+                    '<td class="p-4 text-gray-500">' + new Date(s.createdAt).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) + "</td>";
+                tbody.appendChild(tr);
+            });
+            $("suppliers-empty").classList.toggle("hidden", suppliers.length > 0);
+        }
+
+        // ------------------------------------------------------------------
+        // Purchase orders tab (read-only — edit on /purchase-orders)
+        // ------------------------------------------------------------------
+        var purchaseOrders = [];
+
+        async function loadPurchaseOrders() {
+            try {
+                var data = await api("/purchase-orders");
+                purchaseOrders = data.purchaseOrders || [];
+                renderPurchaseOrdersList();
+            } catch (err) { showError(err.message); }
+        }
+
+        function statusClass(status) {
+            return status === "ORDERED"
+                ? "badge pending pn-status"
+                : "badge";
+        }
+
+        function statusLabel(status) {
+            return status === "DRAFT" ? "Draft"
+                : status === "ORDERED" ? "Ordered"
+                : status === "RECEIVED" ? "Received"
+                : status === "CANCELLED" ? "Cancelled"
+                : status;
+        }
+
+        function renderPurchaseOrdersList() {
+            var tbody = $("po-rows");
+            var countEl = $("po-count");
+            var openEl = $("po-open");
+            var valueEl = $("po-value");
+
+            countEl.textContent = purchaseOrders.length;
+            var open = 0;
+            var total = 0;
+            purchaseOrders.forEach(function (o) {
+                if (o.status === "ORDERED") open += 1;
+                total += o.totalMinor;
+            });
+            openEl.textContent = open;
+            valueEl.textContent = fmt(total);
+
+            tbody.innerHTML = "";
+            purchaseOrders.forEach(function (o) {
+                var tr = document.createElement("tr");
+                tr.className = "border-b border-gray-50 hover:bg-gray-50";
+                tr.innerHTML =
+                    '<td class="p-4" style="font-family:monospace;font-size:13px">#' + escapeHtml(o.id.slice(0, 8).toUpperCase()) + "</td>" +
+                    '<td class="p-4" style="font-weight:600">' + escapeHtml(o.supplierName) + "</td>" +
+                    '<td class="p-4">' + o.itemCount + "</td>" +
+                    '<td class="p-4 font-medium">' + fmt(o.totalMinor) + "</td>" +
+                    '<td class="p-4 text-gray-500">' + new Date(o.createdAt).toLocaleDateString([], { day: "numeric", month: "short" }) + "</td>" +
+                    '<td class="p-4"><span class="' + statusClass(o.status) + '">' + statusLabel(o.status) + "</span></td>";
+                tbody.appendChild(tr);
+            });
+            $("po-empty").classList.toggle("hidden", purchaseOrders.length > 0);
+        }
+
+        // ------------------------------------------------------------------
+        // Stores tab (read-only — edit on /stores)
+        // ------------------------------------------------------------------
+        var storesData = null;
+
+        async function loadStores() {
+            try {
+                var data = await api("/stores");
+                storesData = data;
+                renderStoresList();
+            } catch (err) { showError(err.message); }
+        }
+
+        function renderStoresList() {
+            var grid = $("stores-grid");
+            var countEl = $("store-count");
+            var regEl = $("register-count");
+
+            if (!storesData) {
+                countEl.textContent = "—";
+                regEl.textContent = "—";
+                grid.innerHTML = "";
+                $("stores-empty").classList.remove("hidden");
+                return;
+            }
+
+            countEl.textContent = storesData.stores.length;
+            regEl.textContent = storesData.registers.length;
+
+            grid.innerHTML = "";
+            storesData.stores.forEach(function (store) {
+                var registers = (storesData.registers || []).filter(function (r) { return r.storeId === store.id; });
+                var card = document.createElement("div");
+                card.className = "bg-white rounded-2xl shadow-sm border border-gray-100 p-5";
+                var regList = registers.length === 0
+                    ? '<p class="text-gray-400 text-sm">No registers.</p>'
+                    : registers.map(function (r) {
+                        return '<div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">' +
+                            '<span class="badge">🧮 ' + escapeHtml(r.name) + "</span>" +
+                            '<code class="text-xs text-gray-400">' + escapeHtml(r.id.slice(0, 8)) + "</code>" +
+                        "</div>";
+                      }).join("");
+                card.innerHTML =
+                    '<div class="flex items-center gap-3">' +
+                        '<span class="text-2xl">🏪</span>' +
+                        '<div>' +
+                            '<h2 style="margin:0;font-size:17px">' + escapeHtml(store.name) + "</h2>" +
+                            '<p style="margin:2px 0 0;font-size:13px;color:#78716c">' + registers.length + " register" + (registers.length === 1 ? "" : "s") + "</p>" +
+                        "</div>" +
+                    "</div>" +
+                    regList;
+                grid.appendChild(card);
+            });
+            $("stores-empty").classList.toggle("hidden", storesData.stores.length > 0);
+        }
+
+        // ------------------------------------------------------------------
+        // Audit tab (read-only)
+        // ------------------------------------------------------------------
+        var auditEntries = [];
+
+        async function loadAudit() {
+            try {
+                var data = await api("/audit");
+                auditEntries = data.entries || [];
+                renderAuditList();
+            } catch (err) { showError(err.message); }
+        }
+
+        function renderAuditList() {
+            var tbody = $("audit-rows");
+            tbody.innerHTML = "";
+            auditEntries.forEach(function (e) {
+                var tr = document.createElement("tr");
+                tr.className = "border-b border-gray-50 hover:bg-gray-50";
+                tr.innerHTML =
+                    '<td class="p-4">' + new Date(e.createdAt).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + "</td>" +
+                    '<td class="p-4"><span class="badge">' + escapeHtml(e.action) + "</span></td>" +
+                    '<td class="p-4" style="font-family:monospace;font-size:12.5px">' + escapeHtml(e.entityType) + ":" + escapeHtml(e.entityId.slice(0, 8)) + "</td>" +
+                    '<td class="p-4">' + (e.actorUserId ? escapeHtml(e.actorUserId.slice(0, 8)) : "system") + "</td>";
+                tbody.appendChild(tr);
+            });
+            $("audit-empty").classList.toggle("hidden", auditEntries.length > 0);
+        }
+
+        // ------------------------------------------------------------------
+        // Session, search, clock
+        // ------------------------------------------------------------------
+        $("logout-btn").addEventListener("click", function () {
+            localStorage.removeItem(TOKEN_KEY);
+            window.location.href = "/login";
+        });
+
+        $("search-input").addEventListener("input", function (e) {
+            searchTerm = e.target.value.trim().toLowerCase();
+            renderGrid();
+        });
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "F3") { e.preventDefault(); $("search-input").focus(); }
+        });
+
+        $("reload-btn").addEventListener("click", function () { loadCatalog(); if ($("dashboard-tab").classList.contains("active")) loadDashboard(); });
+
+        // LIVE dot next to the clock — the same pulse the pending badges
+        // use. The dot itself is created here so the markup stays clean.
+        var liveWrap = document.createElement("div");
+        liveWrap.className = "flex items-center gap-2 mr-1 hidden md:flex";
+        liveWrap.innerHTML =
+            '<span class="live-dot inline-block w-2 h-2 rounded-full bg-emerald-500"></span>' +
+            '<span class="text-xs font-bold tracking-widest text-emerald-600">LIVE</span>';
+        var headerMeta = document.querySelector("#app-header .text-right");
+        if (headerMeta && headerMeta.parentElement) headerMeta.parentElement.insertBefore(liveWrap, headerMeta);
+
+        function tickClock() {
+            var now = new Date();
+            $("current-date").textContent = now.toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" });
+            $("current-time").textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " EAT";
+        }
+        setInterval(tickClock, 1000);
+        tickClock();
+
+        // ------------------------------------------------------------------
+        // Boot
+        // ------------------------------------------------------------------
+        setPaymentMethod("MPESA");
+        loadCatalog();
+
+        // Land on whatever the URL names (deep link or refresh), normalising
+        // stray paths back to a real route without polluting history.
+        var initialTab = tabFromPath(window.location.pathname);
+        switchTab(initialTab, { replace: true });
+
+        // Warm the other tabs so their first click is instant; switchTab
+        // refreshes the active one on every visit.
+        [["dashboard-tab", loadDashboard], ["inventory-tab", loadInventory], ["customers-tab", loadCustomers], ["categories-tab", loadCategories], ["suppliers-tab", loadSuppliers], ["purchase-orders-tab", loadPurchaseOrders], ["stores-tab", loadStores], ["audit-tab", loadAudit]]
+            .forEach(function (entry) {
+                if (entry[0] !== initialTab) entry[1]();
+            });
+    })();
+    </script>
+</body>
+</html>

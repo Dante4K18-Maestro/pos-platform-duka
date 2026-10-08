@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.next-*/
 dist/
 build/
 .env
@@ -11,6 +12,11 @@ coverage/
 apps/api/prisma/migrations/dev/
 __pycache__/
 *.pyc
+
+# build artifacts
+*.tsbuildinfo
+apps/web/public/sw.js
+apps/web/public/templates/
 .venv/
 .pnpm-store/
 .neon

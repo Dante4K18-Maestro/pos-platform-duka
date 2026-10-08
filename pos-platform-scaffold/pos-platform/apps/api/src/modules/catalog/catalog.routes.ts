@@ -1,4 +1,9 @@
 // Catalog routes
-// TODO: implement. Scaffold only — see docs/01-architecture.md for the contract.
+import type { FastifyInstance } from "fastify";
+import { CatalogController } from "./catalog.controller";
 
-export {};
+export async function catalogRoutes(app: FastifyInstance) {
+  const controller = new CatalogController();
+
+  app.get("/", { preHandler: [app.authenticate] }, controller.list.bind(controller));
+}

@@ -15,7 +15,8 @@ analogue), built to extend to cafés and salons via business profiles.
 - `packages/business-profiles` — retail / cafe / salon: flags, vocabulary, seeds.
 - `packages/ui` — shared primitives + design tokens.
 - `packages/config` — shared eslint / tsconfig / prettier config.
-- `infra` — docker-compose for local dev, render.yaml, vercel.json.
+- `infra` — docker-compose for local dev and render.yaml. The Vercel config
+  lives at `apps/web/vercel.json`, next to the app it builds.
 - `docs` — architecture notes and ADRs, one file per irreversible decision.
 
 ## Getting started

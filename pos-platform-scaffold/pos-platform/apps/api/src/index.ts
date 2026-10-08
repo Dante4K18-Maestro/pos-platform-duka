@@ -3,6 +3,7 @@
 import { buildApp } from "./app";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
+import { startScheduler } from "./jobs/scheduler";
 
 async function main() {
   const app = await buildApp();
@@ -10,8 +11,13 @@ async function main() {
   await app.listen({ host: "0.0.0.0", port: env.PORT });
   logger.info(`api listening on :${env.PORT}`);
 
+  // The every-minute M-Pesa recheck and the trading-hours keep-awake ping
+  // run inside this process; see jobs/scheduler.ts.
+  const stopScheduler = startScheduler();
+
   const shutdown = async (signal: string) => {
     logger.info(`received ${signal}, shutting down`);
+    stopScheduler();
     await app.close();
     process.exit(0);
   };

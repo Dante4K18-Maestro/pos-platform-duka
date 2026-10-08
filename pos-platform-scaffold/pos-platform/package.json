@@ -12,8 +12,11 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "db:migrate": "pnpm --filter api prisma migrate deploy",
-    "db:seed": "pnpm --filter api exec ts-node prisma/seed.ts"
+    "db:generate": "pnpm --filter @pos/api run prisma:generate",
+    "db:migrate": "pnpm --filter @pos/api run prisma:migrate:deploy",
+    "db:migrate:dev": "pnpm --filter @pos/api run prisma:migrate:dev",
+    "db:push": "pnpm --filter @pos/api exec prisma db push",
+    "db:seed": "pnpm --filter @pos/api run prisma:seed"
   },
   "packageManager": "pnpm@9.12.0",
   "devDependencies": {

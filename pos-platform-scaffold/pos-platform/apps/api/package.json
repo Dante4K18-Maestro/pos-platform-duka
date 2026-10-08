@@ -4,28 +4,35 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "prebuild": "prisma generate",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "lint": "eslint src",
+    "pretypecheck": "prisma generate",
     "typecheck": "tsc --noEmit",
+    "pretest": "prisma generate",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "job:mpesa-reconcile": "tsx src/jobs/mpesa-reconcile.ts"
   },
   "dependencies": {
+    "@fastify/cors": "^9.0.0",
+    "@fastify/jwt": "^8.0.0",
     "@pos/contracts": "workspace:*",
     "@pos/money": "workspace:*",
     "@prisma/client": "^5.20.0",
     "fastify": "^4.28.0",
-    "@fastify/jwt": "^8.0.0",
-    "zod": "^3.23.0",
-    "pino": "^9.4.0"
+    "pino": "^9.4.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@pos/config": "workspace:*",
-    "prisma": "^5.20.0",
+    "@types/node": "20.17.6",
+    "eslint": "^8.57.0",
+    "prisma": "^5.22.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

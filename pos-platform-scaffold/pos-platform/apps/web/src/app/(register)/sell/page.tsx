@@ -1,4 +1,7 @@
-// Quick keys, product search, HID barcode scanner listener.
-export default function Page() {
-  return null; // TODO
+// The register now lives at /pos (templates/pos.html). This old page is kept
+// as a redirect so existing links and bookmarks keep working.
+import { redirect } from "next/navigation";
+
+export default function SellPage() {
+  redirect("/pos");
 }

@@ -1,4 +1,4 @@
-// Tenants module tests
-// TODO: implement. Scaffold only — see docs/01-architecture.md for the contract.
+import { describe } from "vitest";
 
-export {};
+// Scaffold only — see docs/01-architecture.md for the slice contract.
+describe.todo("tenants module");

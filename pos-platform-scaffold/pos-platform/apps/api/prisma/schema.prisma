@@ -58,6 +58,7 @@ model Store {
   tenant          Tenant           @relation(fields: [tenantId], references: [id])
   registers       Register[]
   inventoryLevels InventoryLevel[]
+  stockMovements  StockMovement[]
 
   @@index([tenantId])
   @@map("stores")
@@ -159,6 +160,10 @@ model Product {
   categoryId  String?
   name        String
   description String?
+  // Descriptive product picture. Sourced from a copyright-free image
+  // host; the register grid and inventory list both render it. Null is
+  // valid — the UI falls back to a category glyph tile.
+  imageUrl    String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -546,6 +551,8 @@ model Payment {
   // and the mpesa-reconcile sweep key on — a repeat delivery of either is a
   // no-op, never a second payment row.
   processorReference String?       @unique
+  // The customer phone the STK push was sent to, for MPESA payments.
+  phoneNumber        String?
   // What the merchant uses to settle a dispute with a customer, and what
   // daily cash-up balances against.
   mpesaReceiptNumber String?

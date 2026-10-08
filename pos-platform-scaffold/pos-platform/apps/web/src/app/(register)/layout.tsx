@@ -1,4 +1,5 @@
-// Cashier surface — must work fully offline.
-export default function Page() {
-  return null; // TODO
+// Register surface: pages here hand off to the register at /pos, so this
+// layout stays a plain passthrough.
+export default function RegisterLayout({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
 }
