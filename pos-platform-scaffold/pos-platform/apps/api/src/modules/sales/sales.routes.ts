@@ -13,5 +13,6 @@ export async function salesRoutes(app: FastifyInstance) {
     controller.create.bind(controller),
   );
   app.get("/:id", { preHandler: [app.authenticate] }, controller.getById.bind(controller));
-  app.post("/:id/void", { preHandler: [app.authenticate] }, controller.void.bind(controller));
+  // Voiding history is a back-office decision, not a till action.
+  app.post("/:id/void", { preHandler: [app.authenticate, app.requireRole("owner", "manager")] }, controller.void.bind(controller));
 }

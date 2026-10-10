@@ -4,5 +4,6 @@ import { AuditController } from "./audit.controller";
 export const auditController = new AuditController();
 
 export async function auditRoutes(app: FastifyInstance) {
-  app.get("/", { preHandler: [app.authenticate] }, auditController.list.bind(auditController));
+  // The audit trail is owner eyes only.
+  app.get("/", { preHandler: [app.authenticate, app.requireRole("owner")] }, auditController.list.bind(auditController));
 }

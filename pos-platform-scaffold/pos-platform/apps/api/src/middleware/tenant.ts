@@ -14,6 +14,9 @@ declare module "fastify" {
     // Set only from a verified token payload. Absent on public routes and on
     // requests that carried an invalid/expired token.
     tenantId?: string;
+    // The verified token's role list, attached in the same breath as the
+    // tenant id so role guards never have to re-verify the JWT themselves.
+    roles?: string[];
   }
 }
 
@@ -27,6 +30,7 @@ export async function registerTenantResolver(request: FastifyRequest) {
     // reading tenantId off an untyped object.
     const payload = (await request.jwtVerify()) as AccessTokenPayload;
     request.tenantId = payload.tenantId;
+    request.roles = payload.roles ?? [];
   } catch {
     // Invalid or expired token: leave tenant unset. Protected routes reject
     // it via `authenticate`; public routes stay reachable.

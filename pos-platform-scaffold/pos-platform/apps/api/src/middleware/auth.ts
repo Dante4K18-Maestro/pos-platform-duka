@@ -25,6 +25,11 @@ declare module "fastify" {
   interface FastifyInstance {
     // Route-level guard: rejects a request that carries no verified tenant.
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    // Route-level guard factory: requireRole("owner", "manager") rejects a
+    // token that carries none of those roles with a 403.
+    requireRole: (
+      ...allowed: string[]
+    ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
@@ -38,6 +43,27 @@ export async function registerAuth(app: FastifyInstance) {
         .send({ error: { message: "unauthorized", code: "UNAUTHORIZED" } });
     }
   });
+
+  // Surface guard: a verified token whose roles miss the required set gets a
+  // 403. This is what keeps the back-office API (catalog writes, reports,
+  // settings, staff…) closed to a cashier's till token — the register only
+  // needs to sell, take payment and run its drawer.
+  //
+  // Ordered AFTER app.authenticate in every preHandler chain: the 401 answer
+  // for an absent/expired token is the honest one, and the role check then
+  // sees request.roles filled in by the tenant resolver.
+  app.decorate(
+    "requireRole",
+    (...allowed: string[]) =>
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        const roles = request.roles ?? [];
+        if (!allowed.some((role) => roles.includes(role))) {
+          await reply
+            .status(403)
+            .send({ error: { message: "forbidden", code: "FORBIDDEN" } });
+        }
+      },
+  );
 }
 
 // Access/refresh issuance lives in the auth module once login lands; these

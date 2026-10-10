@@ -11,17 +11,18 @@ import { UsersController } from "./users.controller";
 export const usersController = new UsersController();
 
 export async function usersRoutes(app: FastifyInstance) {
-  app.get("/", { preHandler: [app.authenticate] }, usersController.list.bind(usersController));
+  // Staff management is a back-office surface end to end.
+  app.get("/", { preHandler: [app.authenticate, app.requireRole("owner", "manager")] }, usersController.list.bind(usersController));
 
   app.post<{ Body: CreateStaffInput }>(
     "/",
-    { preHandler: [app.authenticate, validateBody(createStaffSchema)] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager"), validateBody(createStaffSchema)] },
     usersController.create.bind(usersController),
   );
 
   app.patch<{ Params: { id: string }; Body: UpdateStaffInput }>(
     "/:id",
-    { preHandler: [app.authenticate, validateBody(updateStaffSchema)] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager"), validateBody(updateStaffSchema)] },
     usersController.update.bind(usersController),
   );
 }

@@ -233,6 +233,31 @@ async function main() {
     create: { userId: user.id, roleId: ownerRole.id },
   });
 
+  // The till side of the demo: a cashier identity with only the seller
+  // role, so the register surface and the back office have separate
+  // logins end to end (API included — a cashier token cannot read
+  // back-office routes).
+  const cashierRole = await prisma.role.upsert({
+    where: { tenantId_name: { tenantId: tenant.id, name: "cashier" } },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      name: "cashier",
+      permissions: ["sale.create"],
+    },
+  });
+  const CASHER_EMAIL = "cashier@demo.duka";
+  const cashier = await prisma.user.upsert({
+    where: { tenantId_email: { tenantId: tenant.id, email: CASHER_EMAIL } },
+    update: { passwordHash },
+    create: { tenantId: tenant.id, email: CASHER_EMAIL, passwordHash },
+  });
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: cashier.id, roleId: cashierRole.id } },
+    update: {},
+    create: { userId: cashier.id, roleId: cashierRole.id },
+  });
+
   // Without a rate the sale service correctly charges 0% tax; seed the Kenya
   // standard VAT rate so the demo exercises the tax path end to end.
   await prisma.taxRate.upsert({
@@ -463,7 +488,8 @@ async function main() {
   console.log(`Seeded demo tenant "${tenant.name}" (${tenant.id})`);
   console.log(`  store=${store.name} register=${register.name}`);
   console.log(`  taxRate="VAT 16%" (1600 basis points)`);
-  console.log(`  login: ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
+  console.log(`  login: ${DEMO_EMAIL} / ${DEMO_PASSWORD} (admin)`);
+  console.log(`  login: ${CASHER_EMAIL} / ${DEMO_PASSWORD} (cashier)`);
   console.log(`  registerId=${register.id} variantId=${sodaVariant.id}`);
 }
 

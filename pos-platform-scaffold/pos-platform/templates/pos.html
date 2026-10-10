@@ -356,6 +356,13 @@
             animation: shimmer 2.8s ease-in-out infinite;
         }
 
+        /* Same skin — only the button ids differ. */
+        #checkout-charge-btn:not(:disabled) {
+            background: linear-gradient(100deg, #047857, #10b981 55%, #34d399);
+            box-shadow: 0 10px 26px rgba(5, 150, 105, .35);
+        }
+        #checkout-charge-btn:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 16px 38px rgba(5, 150, 105, .48); }
+
         /* --- Payment tiles — a light band sweeps across on hover ---------- */
         .pay-method {
             position: relative;
@@ -391,6 +398,25 @@
 
         /* Cart total pops whenever it changes. */
         #pos-total.pop { animation: popIn .34s var(--ease-spring); }
+        #checkout-total.pop { animation: popIn .34s var(--ease-spring); }
+
+        /* --- Checkout lane — the money line exhales, the card lifts on hover
+               the way product cards do; one visual language, two surfaces. -- */
+        .checkout-card {
+            transition: transform .18s var(--ease-out), box-shadow .25s;
+        }
+        .checkout-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(28, 25, 23, .08);
+        }
+        .checkout-line {
+            animation: fadeUp .42s var(--ease-out) both;
+        }
+        /* The search box filters the (hidden) product grid, so on the lane the
+           header trades it for the way back to the till. */
+        body.on-checkout #checkout-back { display: inline-flex; align-items: center; }
+        body.on-checkout .header-search { display: none; }
+        body:not(.on-checkout) #checkout-back { display: none; }
 
         /* Status attention hooks. */
         .live-dot { animation: livePulse 2.4s ease-out infinite; }
@@ -460,10 +486,12 @@
                     <i class="fa-solid fa-barcode text-xl lg:w-6"></i>
                     <span class="hidden lg:block ml-3 font-medium">Scan (Barcode)</span>
                 </button>
-                <button id="checkout-short" class="nav-btn w-full flex items-center p-3 rounded-lg" type="button">
+                <!-- A real destination: /pos/checkout opens the checkout
+                     lane. Same link language as every other nav item. -->
+                <a href="/pos/checkout" data-tab="checkout-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
                     <i class="fa-solid fa-cash-register text-xl lg:w-6"></i>
                     <span class="hidden lg:block ml-3 font-medium">Checkout</span>
-                </button>
+                </a>
             </div>
 
             <div id="admin-menu" class="hidden flex flex-col gap-2">
@@ -543,7 +571,7 @@
 
         <!-- Top Header -->
         <header id="app-header" class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-10">
-            <div class="flex items-center bg-gray-100 rounded-lg px-4 py-2 w-64 lg:w-96">
+            <div class="header-search flex items-center bg-gray-100 rounded-lg px-4 py-2 w-64 lg:w-96">
                 <i class="fa-solid fa-search text-gray-400"></i>
                 <input id="search-input" type="text" placeholder="Search products (F3)..." class="bg-transparent border-none outline-none ml-3 w-full text-sm placeholder-gray-400">
             </div>
@@ -554,6 +582,10 @@
                 </div>
                 <a id="admin-dash-link" href="/dashboard" class="admin-only w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors" title="Back office">
                     <i class="fa-solid fa-chart-pie"></i>
+                </a>
+                <!-- On the checkout lane only: the way back to the till. -->
+                <a id="checkout-back" href="/pos" data-tab="pos-tab" class="hidden px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition-colors" title="Back to the till">
+                    <i class="fa-solid fa-arrow-left mr-2"></i>Till
                 </a>
                 <button id="reload-btn" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors" title="Reload data">
                     <i class="fa-solid fa-rotate"></i>
@@ -648,6 +680,69 @@
                         </button>
 
                         <div id="charge-result" class="hidden mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================= CHECKOUT LANE VIEW =================
+                 One screen, one run: every line of the order, the money, the
+                 method, one button. Shares state with the till — both views
+                 render from the same cart + totals() code. -->
+            <div id="checkout-tab" class="tab-content h-full w-full overflow-y-auto bg-gray-50 custom-scrollbar">
+                <div class="max-w-3xl mx-auto px-6 py-8">
+                    <div class="flex justify-between items-end mb-6">
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">Checkout</h1>
+                            <p class="text-gray-500 text-sm mt-1" id="checkout-sub">Scan, tap or wait — then take the money.</p>
+                        </div>
+                        <span id="checkout-ref" class="bg-gray-200 text-gray-700 text-xs font-bold px-2 py-1 rounded-full">New</span>
+                    </div>
+
+                    <!-- Order lines: exactly what the till cart holds -->
+                    <div id="checkout-lines" class="bg-white border border-gray-100 rounded-2xl p-5 mb-6 stagger">
+                        <!-- rendered by JS -->
+                    </div>
+
+                    <!-- The money, at display size -->
+                    <div class="bg-white border border-gray-100 rounded-2xl p-5 mb-5">
+                        <div class="flex justify-between text-sm mb-2 text-gray-500">
+                            <span>Subtotal</span>
+                            <span id="checkout-subtotal">KES 0.00</span>
+                        </div>
+                        <div class="flex justify-between text-sm mb-4 text-gray-500">
+                            <span id="checkout-tax-label">Tax</span>
+                            <span id="checkout-tax">KES 0.00</span>
+                        </div>
+                        <div class="flex justify-between items-center pt-3 border-t border-gray-100">
+                            <span class="text-lg font-bold text-gray-800">Total</span>
+                            <span id="checkout-total" class="text-4xl font-extrabold text-emerald-600">KES 0.00</span>
+                        </div>
+                    </div>
+
+                    <!-- Same two methods, same STK logic, one shared flow -->
+                    <div class="bg-white border border-gray-100 rounded-2xl p-5">
+                        <p class="text-xs uppercase tracking-widest text-gray-400 mb-3">Payment</p>
+                        <div class="grid grid-cols-2 gap-3 mb-4">
+                            <button id="pay-ck-mpesa" type="button" class="pay-method flex flex-col items-center justify-center py-3 border-2 border-emerald-500 bg-emerald-50 rounded-xl text-emerald-700 font-semibold transition-all">
+                                <i class="fa-solid fa-mobile-screen-button mb-1 text-lg"></i>
+                                M-Pesa
+                            </button>
+                            <button id="pay-ck-cash" type="button" class="pay-method flex flex-col items-center justify-center py-3 border border-gray-200 bg-white hover:bg-gray-50 rounded-xl text-gray-600 font-medium transition-all">
+                                <i class="fa-solid fa-money-bill-wave mb-1 text-lg"></i>
+                                Cash
+                            </button>
+                        </div>
+                        <div id="checkout-phone-wrap" class="mb-4 relative hidden">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <span class="text-gray-500 text-sm">+254</span>
+                            </div>
+                            <input id="checkout-phone" type="text" inputmode="numeric" placeholder="7XX XXX XXX" class="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm">
+                        </div>
+                        <button id="checkout-charge-btn" type="button" disabled class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-lg shadow-md shadow-emerald-500/30 transition-colors flex items-center justify-center gap-2">
+                            <span id="checkout-charge-label">Send STK Push</span>
+                            <i class="fa-solid fa-arrow-right"></i>
+                        </button>
+                        <div id="checkout-result" class="hidden mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800"></div>
                     </div>
                 </div>
             </div>
@@ -1180,6 +1275,7 @@
         // view; plain clicks swap instantly without a reload.
         var TAB_ROUTES = {
             "pos-tab": "/pos",
+            "checkout-tab": "/pos/checkout",
             "dashboard-tab": "/pos/dashboard",
             "inventory-tab": "/pos/inventory",
             "customers-tab": "/pos/customers",
@@ -1191,6 +1287,7 @@
         };
         var TAB_TITLES = {
             "pos-tab": "Point of Sale",
+            "checkout-tab": "Checkout",
             "dashboard-tab": "Dashboard",
             "inventory-tab": "Inventory",
             "customers-tab": "Customers",
@@ -1228,7 +1325,11 @@
             var tabEl = $(tabId);
             if (tabEl) tabEl.classList.add("active");
             document.title = "Duka POS — " + (TAB_TITLES[tabId] || "Register");
+            // The checkout lane is till chrome: the header's search box means
+            // nothing there, but the way back to the sell screen does.
+            document.body.classList.toggle("on-checkout", tabId === "checkout-tab");
 
+            if (tabId === "checkout-tab") loadCheckout();
             if (tabId === "dashboard-tab") loadDashboard();
             if (tabId === "inventory-tab") loadInventory();
             if (tabId === "customers-tab") loadCustomers();
@@ -1272,7 +1373,8 @@
                 products = data.products || [];
                 taxRateBasisPoints = data.taxRateBasisPoints || 0;
                 $("tax-label").textContent =
-                    taxRateBasisPoints > 0 ? "Tax (" + (taxRateBasisPoints / 100) + "%)" : "Tax";
+                    taxRateBasisPoints > 0 ? "Tax (" + (taxRateBasisPoints / 100) + "%" : "Tax";
+                $("checkout-tax-label").textContent = $("tax-label").textContent;
                 renderCategories();
                 renderGrid();
                 renderCart(); // prices may have changed
@@ -1458,23 +1560,78 @@
             lastTotalMinor = t.totalMinor;
 
             $("charge-btn").disabled = lines.length === 0;
+            renderCheckoutTotals(t, lines.length);
+        }
+
+        // The checkout lane reads the same cart — totals and lines are
+        // mirrored here after every cart mutation, so the two views can
+        // never disagree about what is being sold.
+        function renderCheckoutTotals(t, count) {
+            var wrap = $("checkout-lines");
+            if (count === 0) {
+                wrap.innerHTML =
+                    '<div class="text-center text-gray-400 py-10">' +
+                    '<i class="fa-solid fa-cart-plus text-3xl mb-3"></i>' +
+                    "<p>Nothing to check out yet — add items on the till.</p></div>";
+            } else {
+                var rows = "";
+                cartLines().forEach(function (line) {
+                    rows +=
+                        '<div class="checkout-line flex justify-between items-center py-3 border-b border-gray-100 last:border-0">' +
+                            '<div class="flex items-center gap-3">' +
+                                '<span class="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold flex items-center justify-center">' + line.qty + "</span>" +
+                                '<div><h4 class="font-medium text-sm text-gray-800">' + escapeHtml(line.product.name) + "</h4>" +
+                                '<p class="text-xs text-gray-500">' + fmt(line.product.priceMinor) + " each</p></div>" +
+                            "</div>" +
+                            '<p class="font-semibold text-sm text-gray-800">' + fmt(line.product.priceMinor * line.qty) + "</p>" +
+                        "</div>";
+                });
+                wrap.innerHTML = rows;
+            }
+
+            $("checkout-subtotal").textContent = fmt(t.subtotalMinor);
+            $("checkout-tax").textContent = fmt(t.taxMinor);
+            var totalEl = $("checkout-total");
+            totalEl.textContent = fmt(t.totalMinor);
+            if (lastTotalMinor !== null && lastTotalMinor !== t.totalMinor) {
+                totalEl.classList.remove("pop");
+                void totalEl.offsetWidth;
+                totalEl.classList.add("pop");
+            }
+            $("checkout-charge-btn").disabled = count === 0;
+            $("checkout-sub").textContent = count === 0
+                ? "Scan, tap or wait — then take the money."
+                : count + (count === 1 ? " item ready to pay." : " items ready to pay.");
         }
 
         // ------------------------------------------------------------------
         // Payment & charge
         // ------------------------------------------------------------------
-        function setPaymentMethod(method) {
+        // One charge flow, two front doors. The till panel and the checkout
+        // lane both call these; both mirrors update from the same cart.
+        function setPaymentMethod(method, checkout) {
             paymentMethod = method;
-            var mpesa = method === "MPESA";
-            $("pay-mpesa").className = "pay-method flex flex-col items-center justify-center py-3 rounded-xl font-semibold transition-all " +
-                (mpesa ? "border-2 border-emerald-500 bg-emerald-50 text-emerald-700" : "border border-gray-200 bg-white hover:bg-gray-50 text-gray-600");
-            $("pay-cash").className = "pay-method flex flex-col items-center justify-center py-3 rounded-xl font-semibold transition-all " +
-                (!mpesa ? "border-2 border-emerald-500 bg-emerald-50 text-emerald-700" : "border border-gray-200 bg-white hover:bg-gray-50 text-gray-600");
-            $("mpesa-phone-wrap").style.display = mpesa ? "block" : "none";
-            $("charge-label").textContent = mpesa ? "Send STK Push" : "Charge Cash";
+            var sel = "border-2 border-emerald-500 bg-emerald-50 text-emerald-700";
+            var unsel = "border border-gray-200 bg-white hover:bg-gray-50 text-gray-600";
+            var cls = "pay-method flex flex-col items-center justify-center py-3 rounded-xl font-semibold transition-all ";
+            if (checkout) {
+                var mpesa = method === "MPESA";
+                $("pay-ck-mpesa").className = cls + (mpesa ? sel : unsel);
+                $("pay-ck-cash").className = cls + (!mpesa ? sel : unsel);
+                $("checkout-phone-wrap").style.display = mpesa ? "block" : "none";
+                $("checkout-charge-label").textContent = mpesa ? "Send STK Push" : "Charge Cash";
+            } else {
+                var m = method === "MPESA";
+                $("pay-mpesa").className = cls + (m ? sel : unsel);
+                $("pay-cash").className = cls + (!m ? sel : unsel);
+                $("mpesa-phone-wrap").style.display = m ? "block" : "none";
+                $("charge-label").textContent = m ? "Send STK Push" : "Charge Cash";
+            }
         }
         $("pay-mpesa").addEventListener("click", function () { setPaymentMethod("MPESA"); });
         $("pay-cash").addEventListener("click", function () { setPaymentMethod("CASH"); });
+        $("pay-ck-mpesa").addEventListener("click", function () { setPaymentMethod("MPESA", true); });
+        $("pay-ck-cash").addEventListener("click", function () { setPaymentMethod("CASH", true); });
 
         // Kenyan MSISDN normalisation: 07XX / 01XX → 2547/2541XXXXXXXX.
         function normalizePhone(raw) {
@@ -1485,57 +1642,92 @@
             return null;
         }
 
-        $("charge-btn").addEventListener("click", async function () {
+        // The shared run: build the sale body, POST /sales, reset the cart.
+        // The two charge buttons hand in their own button/label/result nodes
+        // and the phone field they own, so whichever lane started the charge
+        // is the lane that shows the confirmation.
+        function buildSaleBody(lines, t) {
+            var payment = { method: paymentMethod, amountMinor: t.totalMinor };
+            if (paymentMethod === "MPESA") {
+                var phone = $("checkout-tab").classList.contains("active")
+                    ? normalizePhone($("checkout-phone").value)
+                    : normalizePhone($("mpesa-phone").value);
+                if (!phone) return { error: "Enter a valid Kenyan phone number (e.g. 0712 345 678)." };
+                payment.phoneNumber = phone;
+            }
+            return {
+                body: {
+                    // Generated once per attempt; a retry with the same id
+                    // replays instead of double-charging (server rule).
+                    clientId: crypto.randomUUID(),
+                    registerId: REGISTER_ID,
+                    items: lines.map(function (line) {
+                        return { variantId: line.product.id, quantity: line.qty, unitPrice: line.product.priceMinor };
+                    }),
+                    payment: payment,
+                },
+            };
+        }
+
+        async function runCharge(opts) {
             var lines = cartLines();
             if (lines.length === 0) return;
 
             var t = totals();
-            var payment = { method: paymentMethod, amountMinor: t.totalMinor };
-            if (paymentMethod === "MPESA") {
-                var phone = normalizePhone($("mpesa-phone").value);
-                if (!phone) { showError("Enter a valid Kenyan phone number (e.g. 0712 345 678)."); return; }
-                payment.phoneNumber = phone;
-            }
+            var prepared = buildSaleBody(lines, t);
+            if (prepared.error) { showError(prepared.error); return; }
 
-            var btn = $("charge-btn");
-            var originalLabel = $("charge-label").textContent;
+            var btn = opts.btn;
+            var label = opts.label;
+            var result = opts.result;
+            var originalLabel = label.textContent;
             btn.disabled = true;
-            $("charge-label").textContent = "Processing…";
+            label.textContent = "Processing…";
             try {
-                var sale = await api("/sales", {
-                    method: "POST",
-                    body: {
-                        // Generated once per attempt; a retry with the same id
-                        // replays instead of double-charging (server rule).
-                        clientId: crypto.randomUUID(),
-                        registerId: REGISTER_ID,
-                        items: lines.map(function (line) {
-                            return { variantId: line.product.id, quantity: line.qty, unitPrice: line.product.priceMinor };
-                        }),
-                        payment: payment,
-                    },
-                });
+                var sale = await api("/sales", { method: "POST", body: prepared.body });
 
                 cart = {};
                 renderCart();
-                $("charge-result").classList.remove("hidden");
-                $("charge-result").innerHTML =
+                result.classList.remove("hidden");
+                result.innerHTML =
                     "<strong>Sale " + escapeHtml((sale.id || "").slice(0, 8).toUpperCase()) + " recorded.</strong><br>" +
                     fmt(sale.totalMinor) + " via " + paymentMethod +
                     (paymentMethod === "MPESA" ? " — awaiting confirmation." : " — cash received.");
                 $("order-ref").textContent = "#" + (sale.id || "").slice(0, 8).toUpperCase();
+                $("checkout-ref").textContent = $("order-ref").textContent;
                 loadCatalog(); // refresh stock badges
             } catch (err) {
                 showError(err.message);
             } finally {
                 btn.disabled = false;
-                $("charge-label").textContent = originalLabel;
+                label.textContent = originalLabel;
             }
+        }
+
+        $("charge-btn").addEventListener("click", async function () {
+            await runCharge({ btn: $("charge-btn"), label: $("charge-label"), result: $("charge-result") });
+        });
+
+        $("checkout-charge-btn").addEventListener("click", async function () {
+            await runCharge({ btn: $("checkout-charge-btn"), label: $("checkout-charge-label"), result: $("checkout-result") });
         });
 
         // The register the cashier is logged into (seeded "Till 1"). Multi-
         // register selection arrives with the cash-session slice.
         var REGISTER_ID = "00000000-0000-0000-0000-000000000003";
+
+        // ------------------------------------------------------------------
+        // Checkout lane
+        // ------------------------------------------------------------------
+        // Entering the lane re-syncs it with the cart (scan-into-cart while
+        // the lane is open just re-renders through renderCart's mirror).
+        function loadCheckout() {
+            var lines = cartLines();
+            renderCheckoutTotals(totals(), lines.length);
+            // The lane's own M-Pesa field starts empty every visit; the till
+            // panel keeps whatever the cashier already typed.
+            if (!$("checkout-phone").value) setPaymentMethod(paymentMethod, true);
+        }
 
         // ------------------------------------------------------------------
         // Dashboard
@@ -2104,13 +2296,11 @@
             if (e.key.length === 1) wedgeBuffer += e.key;
         });
 
-        // Checkout shortcut: bring the till to the front and hand focus to the
-        // charge button so a scan-and-charge run needs no mouse at all.
-        $("checkout-short").addEventListener("click", function () {
-            switchTab("pos-tab", { replace: true });
-            var btn = $("charge-btn");
-            try { btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
-            setTimeout(function () { if (!btn.disabled) btn.focus(); }, 250);
+        // Back-to-till wire (header button, shown only on the lane).
+        $("checkout-back").addEventListener("click", function (e) {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            switchTab("pos-tab");
         });
 
         // Session, search, clock
@@ -2188,6 +2378,9 @@
                 .forEach(function (entry) {
                     if (entry[0] !== initialTab) entry[1]();
                 });
+        } else {
+            // The cashier's lane starts pre-warmed too — first click instant.
+            if (initialTab !== "checkout-tab") loadCheckout();
         }
     })();
     </script>

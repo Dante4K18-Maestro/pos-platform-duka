@@ -6,14 +6,15 @@ import { PurchaseOrdersController } from "./purchase-orders.controller";
 export const purchaseOrdersController = new PurchaseOrdersController();
 
 export async function purchaseOrdersRoutes(app: FastifyInstance) {
+  // Purchasing is back-office: no PO list at the till.
   app.get(
     "/",
-    { preHandler: [app.authenticate] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager")] },
     purchaseOrdersController.list.bind(purchaseOrdersController),
   );
   app.post<{ readonly Body: CreatePurchaseOrderInput }>(
     "/",
-    { preHandler: [app.authenticate, validateBody(createPurchaseOrderSchema)] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager"), validateBody(createPurchaseOrderSchema)] },
     purchaseOrdersController.create.bind(purchaseOrdersController),
   );
 }

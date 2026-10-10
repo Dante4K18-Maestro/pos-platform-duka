@@ -6,10 +6,12 @@ import { CategoriesController } from "./categories.controller";
 export const categoriesController = new CategoriesController();
 
 export async function categoriesRoutes(app: FastifyInstance) {
-  app.get("/", { preHandler: [app.authenticate] }, categoriesController.list.bind(categoriesController));
+  // Category allows, with the rest, shape the admin surface; the register
+  // gets its category bar from /catalog instead.
+  app.get("/", { preHandler: [app.authenticate, app.requireRole("owner", "manager")] }, categoriesController.list.bind(categoriesController));
   app.post<{ readonly Body: CreateCategoryInput }>(
     "/",
-    { preHandler: [app.authenticate, validateBody(createCategorySchema)] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager"), validateBody(createCategorySchema)] },
     categoriesController.create.bind(categoriesController),
   );
 }

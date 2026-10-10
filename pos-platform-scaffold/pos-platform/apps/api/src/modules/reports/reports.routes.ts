@@ -5,5 +5,6 @@ import { ReportsController } from "./reports.controller";
 export async function reportsRoutes(app: FastifyInstance) {
   const controller = new ReportsController();
 
-  app.get("/overview", { preHandler: [app.authenticate] }, controller.overview.bind(controller));
+  // Business reporting is a back-office view; the till has its own numbers.
+  app.get("/overview", { preHandler: [app.authenticate, app.requireRole("owner", "manager")] }, controller.overview.bind(controller));
 }

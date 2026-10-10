@@ -17,25 +17,27 @@ import { SettingsController } from "./settings.controller";
 export const settingsController = new SettingsController();
 
 export async function settingsRoutes(app: FastifyInstance) {
-  const guard = { preHandler: [app.authenticate] };
+  // Settings shape the business; the till never reads or writes them. (The
+  // register gets its tax rate from /catalog's snapshot instead.)
+  const guard = { preHandler: [app.authenticate, app.requireRole("owner", "manager")] };
 
   app.get("/", guard, settingsController.snapshot.bind(settingsController));
 
   app.patch<{ Body: UpdateBusinessProfileInput }>(
     "/profile",
-    { preHandler: [app.authenticate, validateBody(updateBusinessProfileSchema)] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager"), validateBody(updateBusinessProfileSchema)] },
     settingsController.updateProfile.bind(settingsController),
   );
 
   app.patch<{ Body: UpdateReceiptSettingsInput }>(
     "/receipts",
-    { preHandler: [app.authenticate, validateBody(updateReceiptSettingsSchema)] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager"), validateBody(updateReceiptSettingsSchema)] },
     settingsController.updateReceipts.bind(settingsController),
   );
 
   app.patch<{ Body: UpdateMpesaSettingsInput }>(
     "/mpesa",
-    { preHandler: [app.authenticate, validateBody(updateMpesaSettingsSchema)] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager"), validateBody(updateMpesaSettingsSchema)] },
     settingsController.updateMpesa.bind(settingsController),
   );
 
@@ -43,13 +45,13 @@ export async function settingsRoutes(app: FastifyInstance) {
 
   app.post<{ Body: CreateTaxRateInput }>(
     "/taxes",
-    { preHandler: [app.authenticate, validateBody(createTaxRateSchema)] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager"), validateBody(createTaxRateSchema)] },
     settingsController.createTaxRate.bind(settingsController),
   );
 
   app.patch<{ Params: { id: string }; Body: UpdateTaxRateInput }>(
     "/taxes/:id",
-    { preHandler: [app.authenticate, validateBody(updateTaxRateSchema)] },
+    { preHandler: [app.authenticate, app.requireRole("owner", "manager"), validateBody(updateTaxRateSchema)] },
     settingsController.updateTaxRate.bind(settingsController),
   );
 

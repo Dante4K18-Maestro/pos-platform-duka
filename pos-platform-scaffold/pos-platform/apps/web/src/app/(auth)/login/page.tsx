@@ -19,12 +19,13 @@ export default function LoginPage() {
     setError(null);
     try {
       await login(email, password);
-      // Store chosen mode locally for UI gating (API still enforces roles)
+      // Store chosen mode locally for UI gating (API still enforces roles).
+      // Admin lands in the back office; the cashier lands on the till.
       if (typeof window !== "undefined") {
         localStorage.setItem("pos:auth:mode", mode);
         localStorage.setItem("pos:auth:role", mode === "admin" ? "owner" : "cashier");
       }
-      router.push("/pos");
+      router.push(mode === "admin" ? "/dashboard" : "/pos");
     } catch (err) {
       setError((err as Error).message);
     } finally {
