@@ -65,12 +65,7 @@ export default function InventoryPage() {
                   <td style={{ fontFamily: "monospace", fontSize: 12.5 }}>{item.sku}</td>
                   <td>
                     <span className="cell-product">
-                      {item.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img className="thumb" src={item.imageUrl} alt="" loading="lazy" />
-                      ) : (
-                        <span className="thumb-fallback">📦</span>
-                      )}
+                      <span className="thumb-fallback">📦</span>
                       <span style={{ fontWeight: 600 }}>{item.name}</span>
                     </span>
                   </td>

@@ -11,6 +11,13 @@ export function LogoutButton() {
       className="side-logout"
       onClick={() => {
         clearSession();
+        try {
+          window.localStorage.removeItem("pos:auth:role");
+          window.localStorage.removeItem("pos:auth:mode");
+        } catch {
+          // Storage can be unavailable (private mode); the session is already
+          // cleared, so logging out still succeeds.
+        }
         router.push("/login");
       }}
     >

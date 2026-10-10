@@ -1,8 +1,6 @@
 "use client";
 
-// Email + password login. Warm split-screen (globals.css): form on the left,
-// retail photography with a testimonial panel on the right, matching the
-// register (templates/pos.html) brand.
+// Email + password login.
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { login } from "@/lib/api-client";
@@ -13,6 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("demo1234");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"admin" | "cashier">("admin");
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -20,8 +19,11 @@ export default function LoginPage() {
     setError(null);
     try {
       await login(email, password);
-      // Land on the register (templates/pos.html); it shares the same
-      // localStorage token key.
+      // Store chosen mode locally for UI gating (API still enforces roles)
+      if (typeof window !== "undefined") {
+        localStorage.setItem("pos:auth:mode", mode);
+        localStorage.setItem("pos:auth:role", mode === "admin" ? "owner" : "cashier");
+      }
       router.push("/pos");
     } catch (err) {
       setError((err as Error).message);
@@ -43,6 +45,25 @@ export default function LoginPage() {
         </div>
 
         {error && <div className="auth-error">{error}</div>}
+
+        <div className="flex gap-2 mb-4">
+          <button
+            type="button"
+            onClick={() => setMode("admin")}
+            className={mode === "admin" ? "btn btn-primary flex-1" : "btn btn-secondary flex-1"}
+            disabled={busy}
+          >
+            Admin
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("cashier")}
+            className={mode === "cashier" ? "btn btn-primary flex-1" : "btn btn-secondary flex-1"}
+            disabled={busy}
+          >
+            Cashier
+          </button>
+        </div>
 
         <form onSubmit={onSubmit}>
           <label className="field">
@@ -66,7 +87,7 @@ export default function LoginPage() {
             />
           </label>
           <button type="submit" className="btn btn-primary" disabled={busy}>
-            {busy ? "Signing in…" : "Sign in"}
+            {busy ? "Signing in…" : `Sign in as ${mode === "admin" ? "Admin" : "Cashier"}`}
           </button>
         </form>
 

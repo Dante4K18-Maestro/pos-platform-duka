@@ -10,10 +10,6 @@ import type { CatalogProduct, InventoryItem } from "@pos/contracts";
 import { apiFetch, getAccessToken } from "@/lib/api-client";
 import { formatMinor } from "@/lib/format";
 
-// Fallback only — a product with no resolved picture still gets a styled hero.
-const HERO =
-  "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?q=80&w=1600&auto=format&fit=crop";
-
 export default function ProductDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -69,7 +65,10 @@ export default function ProductDetailPage() {
 
       {product && (
         <>
-          <div className="hero-banner" style={{ backgroundImage: `linear-gradient(100deg, rgb(4 120 87 / 92%) 0%, rgb(5 150 105 / 78%) 45%, rgb(41 37 36 / 35%) 100%), url("${product.imageUrl ?? HERO}")` }}>
+          <div
+            className="hero-banner"
+            style={{ backgroundImage: "linear-gradient(100deg, #047857 0%, #059669 45%, #292524 100%)" }}
+          >
             <span className="hero-tag">📦 {product.categoryName ?? "Uncategorised"}</span>
             <h1>{product.name}</h1>
             <p>SKU {product.sku}</p>

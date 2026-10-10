@@ -1,10 +1,11 @@
 // Back-office surface: owner/manager views. A grouped sidebar whose every
 // item resolves to a real (designed) page. Client component so the current
-// route gets the .active treatment (globals.css).
+// route gets the .active treatment (globals.css) — and so a cashier session
+// can be turned away from admin-only pages before any data is fetched.
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/logout-button";
 
@@ -73,8 +74,26 @@ const NAV: NavGroup[] = [
 
 export default function BackOfficeLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   // Rendered after mount so the static shell and the client agree.
   const [clock, setClock] = useState("");
+  // Admin-only gate. Children mount only once the session is known to be an
+  // admin, so a cashier never triggers the admin fetches behind these pages.
+  const [allowed, setAllowed] = useState(false);
+
+  useEffect(() => {
+    let role: string | null = null;
+    try {
+      role = window.localStorage.getItem("pos:auth:role");
+    } catch {
+      role = null;
+    }
+    if (role === "cashier") {
+      router.replace("/pos");
+      return;
+    }
+    setAllowed(true);
+  }, [router]);
 
   useEffect(() => {
     const tick = () =>
@@ -87,6 +106,18 @@ export default function BackOfficeLayout({ children }: { children: React.ReactNo
   }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
+
+  if (!allowed) {
+    return (
+      <div className="app-shell">
+        <div className="app-main">
+          <div className="page">
+            <p className="subtitle">Checking access…</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">

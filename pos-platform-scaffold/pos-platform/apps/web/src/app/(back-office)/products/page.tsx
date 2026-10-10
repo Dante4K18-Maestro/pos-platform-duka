@@ -67,12 +67,7 @@ export default function ProductsPage() {
                   <td style={{ fontFamily: "monospace", fontSize: 12.5 }}>{product.sku}</td>
                   <td>
                     <span className="cell-product">
-                      {product.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img className="thumb" src={product.imageUrl} alt="" loading="lazy" />
-                      ) : (
-                        <span className="thumb-fallback">📦</span>
-                      )}
+                      <span className="thumb-fallback">📦</span>
                       <Link href={`/products/${product.id}`} style={{ fontWeight: 600 }}>
                         {product.name}
                       </Link>

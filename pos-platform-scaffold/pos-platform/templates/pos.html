@@ -281,18 +281,6 @@
             pointer-events: none;
             background: linear-gradient(180deg, rgb(28 25 23 / 0%) 48%, rgb(28 25 23 / 26%) 100%);
         }
-        .product-img {
-            position: absolute;
-            inset: 0;
-            z-index: 1;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            animation: fadeIn .5s var(--ease-out) both;
-            transition: transform .6s var(--ease-out), filter .4s;
-        }
-        .product-card:hover .product-img { transform: scale(1.09); filter: saturate(1.1); }
-
         /* Cards rise in as the grid paints, in a quick wave rather than all
            at once — the shelf "arriving" is what makes it feel alive. */
         #product-grid .product-card { animation: fadeUp .45s var(--ease-out) both; }
@@ -318,15 +306,8 @@
         }
         @keyframes logoShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
 
-        /* Inventory thumbnails — the same photo, small. */
-        .inv-thumb {
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            object-fit: cover;
-            border: 1px solid #e7e2da;
-            box-shadow: 0 2px 6px rgb(41 37 36 / 8%);
-        }
+        /* Inventory row marker. Products no longer carry photos, so the
+           small box glyph is the single, consistent leading element. */
         .inv-fallback {
             width: 40px;
             height: 40px;
@@ -440,6 +421,19 @@
                 display: none;
             }
         }
+        /* ---------- Scanner overlay: camera capture + barcode entry ---------- */
+        #scan-overlay { display: none; }
+        #scan-overlay:not(.hidden) { display: flex; }
+        .scan-modal { animation: fadeUp .3s var(--ease-out) both; }
+        #scan-video { background: #111; }
+        .scan-reticle {
+            position: absolute;
+            inset: 16% 12%;
+            border: 2px solid rgb(52 211 153 / 90%);
+            border-radius: 14px;
+            box-shadow: 0 0 0 9999px rgb(0 0 0 / 30%);
+            pointer-events: none;
+        }
     </style>
 </head>
 <body class="bg-gray-50 h-screen flex overflow-hidden text-gray-800">
@@ -451,71 +445,81 @@
             <span class="hidden lg:block ml-3 font-bold text-lg tracking-wide">Duka POS</span>
         </div>
 
-        <!-- Every item is a real link to its own /pos/... URL; the router
-             below intercepts plain clicks for an instant swap. -->
-        <nav class="flex-1 py-6 flex flex-col gap-2 px-3 overflow-y-auto custom-scrollbar">
-            <a href="/pos" data-tab="pos-tab" aria-current="page" class="nav-btn is-active w-full flex items-center p-3 rounded-lg">
+        <!-- Navigation: cashier gets minimal items; admin gets full -->
+        <nav class="flex-1 py-6 flex flex-col gap-2 px-3 overflow-y-auto custom-scrollbar">                <a href="/pos" data-tab="pos-tab" aria-current="page" class="nav-btn is-active w-full flex items-center p-3 rounded-lg">
                 <i class="fa-solid fa-calculator text-xl lg:w-6"></i>
                 <span class="hidden lg:block ml-3 font-medium">Point of Sale</span>
             </a>
-            <a href="/pos/dashboard" data-tab="dashboard-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-chart-pie text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Dashboard</span>
-            </a>
-            <a href="/pos/inventory" data-tab="inventory-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-box text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Inventory</span>
-            </a>
-            <a href="/pos/customers" data-tab="customers-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-users text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Customers</span>
-            </a>
 
-            <!-- In-page back-office tabs. Read-only here — editing happens on the
-                 Next.js back-office pages (/categories, /suppliers, …). These
-                 render the same API data inline so a cashier can check stock,
-                 suppliers and orders without leaving the till. -->
-            <span class="nav-divider hidden lg:block"></span>
-            <a href="/pos/categories" data-tab="categories-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-tags text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Categories</span>
-            </a>
-            <a href="/pos/suppliers" data-tab="suppliers-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-truck-fast text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Suppliers</span>
-            </a>
-            <a href="/pos/purchase-orders" data-tab="purchase-orders-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-file-invoice text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Purchase Orders</span>
-            </a>
-            <a href="/pos/stores" data-tab="stores-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-store text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Stores</span>
-            </a>
-            <a href="/pos/audit" data-tab="audit-tab" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-shield-halved text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Audit</span>
-            </a>
+            <div id="cashier-menu" class="flex flex-col gap-2 cashier-only">
+                <button id="scan-cam" class="nav-btn w-full flex items-center p-3 rounded-lg" type="button">
+                    <i class="fa-solid fa-camera text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Scan (Camera)</span>
+                </button>
+                <button id="scan-bar" class="nav-btn w-full flex items-center p-3 rounded-lg" type="button">
+                    <i class="fa-solid fa-barcode text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Scan (Barcode)</span>
+                </button>
+                <button id="checkout-short" class="nav-btn w-full flex items-center p-3 rounded-lg" type="button">
+                    <i class="fa-solid fa-cash-register text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Checkout</span>
+                </button>
+            </div>
 
-            <!-- Back-office destinations. These are plain links (no data-tab),
-                 so the register router leaves the native navigation alone. -->
-            <span class="nav-divider hidden lg:block"></span>
-            <a href="/reports" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-chart-line text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Reports</span>
-            </a>
-            <a href="/staff" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-user-tie text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Staff</span>
-            </a>
-            <a href="/suppliers" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-truck-fast text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Suppliers</span>
-            </a>
-            <a href="/settings" class="nav-btn w-full flex items-center p-3 rounded-lg">
-                <i class="fa-solid fa-gear text-xl lg:w-6"></i>
-                <span class="hidden lg:block ml-3 font-medium">Settings</span>
-            </a>
+            <div id="admin-menu" class="hidden flex flex-col gap-2">
+                <a href="/pos/dashboard" data-tab="dashboard-tab" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-chart-pie text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Dashboard</span>
+                </a>
+                <a href="/pos/inventory" data-tab="inventory-tab" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-box text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Inventory</span>
+                </a>
+                <a href="/pos/customers" data-tab="customers-tab" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-users text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Customers</span>
+                </a>
+
+                <span class="nav-divider hidden lg:block"></span>
+                <a href="/pos/categories" data-tab="categories-tab" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-tags text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Categories</span>
+                </a>
+                <a href="/pos/suppliers" data-tab="suppliers-tab" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-truck-fast text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Suppliers</span>
+                </a>
+                <a href="/pos/purchase-orders" data-tab="purchase-orders-tab" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-file-invoice text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Purchase Orders</span>
+                </a>
+                <a href="/pos/stores" data-tab="stores-tab" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-store text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Stores</span>
+                </a>
+                <a href="/pos/audit" data-tab="audit-tab" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-shield-halved text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Audit</span>
+                </a>
+
+                <span class="nav-divider hidden lg:block"></span>
+                <a href="/reports" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-chart-line text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Reports</span>
+                </a>
+                <a href="/staff" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-user-tie text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Staff</span>
+                </a>
+                <a href="/suppliers" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-truck-fast text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Suppliers</span>
+                </a>
+                <a href="/settings" class="nav-btn w-full flex items-center p-3 rounded-lg admin-only">
+                    <i class="fa-solid fa-gear text-xl lg:w-6"></i>
+                    <span class="hidden lg:block ml-3 font-medium">Settings</span>
+                </a>
+            </div>
 
             <button id="logout-btn" class="w-full flex items-center p-3 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white transition-colors mt-auto">
                 <i class="fa-solid fa-right-from-bracket text-xl lg:w-6"></i>
@@ -525,10 +529,10 @@
 
         <div class="p-4 border-t border-gray-800">
             <div class="flex items-center justify-center lg:justify-start">
-                <div class="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold">DK</div>
+                <div id="side-user-avatar" class="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-bold">DK</div>
                 <div class="hidden lg:block ml-3">
-                    <p class="text-sm font-medium">Daniel Kabete</p>
-                    <p class="text-xs text-gray-400">Admin / Cashier</p>
+                    <p id="side-user-name" class="text-sm font-medium">Daniel Kabete</p>
+                    <p id="side-user-role" class="text-xs text-gray-400">Admin</p>
                 </div>
             </div>
         </div>
@@ -548,7 +552,7 @@
                     <p id="current-date" class="text-sm font-semibold text-gray-700">—</p>
                     <p id="current-time" class="text-xs text-gray-500">—</p>
                 </div>
-                <a href="/dashboard" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors" title="Next.js dashboard">
+                <a id="admin-dash-link" href="/dashboard" class="admin-only w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors" title="Back office">
                     <i class="fa-solid fa-chart-pie"></i>
                 </a>
                 <button id="reload-btn" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors" title="Reload data">
@@ -1014,6 +1018,46 @@
         </div>
     </main>
 
+    <!-- Scanner overlay: camera capture, and keyboard/USB-gun barcode entry -->
+    <div id="scan-overlay" class="hidden fixed inset-0 flex items-center justify-center p-4 z-50 bg-black/60 backdrop-blur-sm">
+        <div class="scan-modal bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                <div class="flex items-center gap-3">
+                    <span class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <i id="scan-modal-icon" class="fa-solid fa-camera"></i>
+                    </span>
+                    <div>
+                        <h2 id="scan-modal-title" class="font-bold text-gray-800">Scan with camera</h2>
+                        <p id="scan-modal-sub" class="text-xs text-gray-500">Point the camera at a barcode</p>
+                    </div>
+                </div>
+                <button id="scan-close" class="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors" title="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div id="scan-camera-pane" class="p-5">
+                <div class="relative rounded-xl overflow-hidden bg-gray-900" style="aspect-ratio: 4 / 3">
+                    <video id="scan-video" class="w-full h-full object-cover" playsinline muted></video>
+                    <div class="scan-reticle" aria-hidden="true"></div>
+                </div>
+                <p id="scan-status" class="text-sm text-gray-500 mt-3 text-center">Starting camera…</p>
+            </div>
+
+            <div id="scan-barcode-pane" class="p-5 hidden">
+                <div class="rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/70 p-5 text-center">
+                    <i class="fa-solid fa-barcode text-3xl text-emerald-500"></i>
+                    <p class="text-sm text-emerald-800 mt-2">Scanner armed. Scan a barcode, or type a code and press Enter.</p>
+                </div>
+                <input id="scan-input" type="text" inputmode="none" autocomplete="off" placeholder="Waiting for scan…"
+                    class="mt-4 w-full px-4 py-3 bg-white border border-gray-200 rounded-lg text-center font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                <p id="scan-recent" class="mt-3 text-xs text-gray-500 text-center"></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="scan-toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-full shadow-lg"></div>
+
     <script>
     (function () {
         "use strict";
@@ -1067,6 +1111,44 @@
             }
             return body;
         }
+
+        // ------------------------------------------------------------------
+        // Role gating
+        // ------------------------------------------------------------------
+        // The sign-in mode chosen at /login decides the shell: a cashier gets
+        // the counter-only sidebar (sell, scan, checkout, log out), an admin
+        // gets the full back office. Admin-only views are both hidden and
+        // blocked on deep links so the register never renders one for a
+        // cashier. (The API still issues the token; this gates the surface.)
+        var ADMIN_TABS = ["dashboard-tab", "inventory-tab", "customers-tab", "categories-tab", "suppliers-tab", "purchase-orders-tab", "stores-tab", "audit-tab"];
+
+        function currentRole() {
+            try { return localStorage.getItem("pos:auth:role") || "cashier"; } catch (e) { return "cashier"; }
+        }
+        function isAdmin() { return currentRole() === "admin"; }
+        function guardRoleRoute(tabId) {
+            if (!isAdmin() && ADMIN_TABS.indexOf(tabId) !== -1) return "pos-tab";
+            return tabId;
+        }
+
+        (function applyRoleChrome() {
+            var adminMenu = document.getElementById("admin-menu");
+            if (isAdmin()) {
+                if (adminMenu) { adminMenu.classList.remove("hidden"); adminMenu.classList.add("flex"); }
+                document.querySelectorAll(".admin-only").forEach(function (el) { el.classList.remove("hidden"); });
+                document.querySelectorAll(".cashier-only").forEach(function (el) { el.classList.add("hidden"); });
+            } else {
+                if (adminMenu) { adminMenu.classList.add("hidden"); adminMenu.classList.remove("flex"); }
+                document.querySelectorAll(".cashier-only").forEach(function (el) { el.classList.remove("hidden"); });
+                document.querySelectorAll(".admin-only").forEach(function (el) { el.classList.add("hidden"); });
+            }
+            var roleLabel = document.getElementById("side-user-role");
+            var userName = document.getElementById("side-user-name");
+            var avatar = document.getElementById("side-user-avatar");
+            if (roleLabel) roleLabel.textContent = isAdmin() ? "Admin" : "Cashier";
+            if (userName && !isAdmin()) userName.textContent = "Till Operator";
+            if (avatar && !isAdmin()) avatar.textContent = "TO";
+        })();
 
         // Money: integer minor units in, "KES x.xx" out — same convention as
         // @pos/money. Tax math below mirrors computeSaleTotals: per-line,
@@ -1131,6 +1213,7 @@
         function switchTab(tabId, options) {
             options = options || {};
             if (!TAB_ROUTES[tabId]) tabId = "pos-tab";
+            tabId = guardRoleRoute(tabId);
 
             document.querySelectorAll(".tab-content").forEach(function (tab) {
                 tab.classList.remove("active");
@@ -1259,12 +1342,9 @@
                 var stockBadge = p.onHand > 0
                     ? '<span class="absolute top-2 right-2 bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded">' + p.onHand + ' in stock</span>'
                     : '<span class="absolute top-2 right-2 bg-red-100 text-red-700 text-xs font-bold px-2 py-1 rounded">out</span>';
-                var media = p.imageUrl
-                    ? '<img class="product-img" src="' + escapeHtml(p.imageUrl) + '" alt="' + escapeHtml(p.name) + '" loading="lazy" onerror="this.remove()">'
-                    : "";
                 card.innerHTML =
                     '<div class="product-media h-32 bg-gray-100 flex items-center justify-center relative overflow-hidden">' +
-                        '<i class="fa-solid fa-basket-shopping text-3xl text-gray-300"></i>' + media + stockBadge +
+                        '<i class="fa-solid fa-basket-shopping text-3xl text-gray-300"></i>' + stockBadge +
                     "</div>" +
                     '<div class="p-4">' +
                         '<h3 class="font-semibold text-gray-800 truncate">' + escapeHtml(p.name) + "</h3>" +
@@ -1538,9 +1618,7 @@
                 var time = item.updatedAt
                     ? new Date(item.updatedAt).toLocaleDateString([], { day: "numeric", month: "short" })
                     : "—";
-                var thumb = item.imageUrl
-                    ? '<img class="inv-thumb" src="' + escapeHtml(item.imageUrl) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
-                    : '<span class="inv-fallback"><i class="fa-solid fa-box"></i></span>';
+                var thumb = '<span class="inv-fallback"><i class="fa-solid fa-box"></i></span>';
                 tr.innerHTML =
                     '<td class="p-4 text-gray-500 font-mono text-xs">' + escapeHtml(item.sku) + "</td>" +
                     '<td class="p-4"><div class="flex items-center gap-3">' + thumb +
@@ -1853,10 +1931,213 @@
         }
 
         // ------------------------------------------------------------------
+        // Scanning — camera (BarcodeDetector) and hardware/gun entry
+        // ------------------------------------------------------------------
+        var scanVideo = $("scan-video");
+        var scanStream = null;
+        var scanDetector = null;
+        var scanLoopId = null;
+        var scanLastHit = "";
+
+        function scanKey(code) { return String(code || "").trim().toLowerCase(); }
+
+        function findProductByCode(code) {
+            var needle = scanKey(code);
+            if (!needle) return null;
+            for (var i = 0; i < products.length; i++) {
+                var p = products[i];
+                if ((p.barcode && scanKey(p.barcode) === needle) ||
+                    (p.sku && scanKey(p.sku) === needle)) return p;
+            }
+            return null;
+        }
+
+        function showScanToast(text) {
+            var toast = $("scan-toast");
+            if (!toast) return;
+            toast.textContent = text;
+            toast.classList.remove("hidden");
+            clearTimeout(showScanToast._t);
+            showScanToast._t = setTimeout(function () { toast.classList.add("hidden"); }, 2200);
+        }
+
+        // The one path every scan takes: camera frame, wedge burst, or typed
+        // code. Unknown codes stay put and explain themselves rather than
+        // silently doing nothing.
+        function handleScan(code) {
+            var product = findProductByCode(code);
+            if (!product) {
+                showScanToast('No match for "' + code + '"');
+                var status = $("scan-status");
+                if (status) status.textContent = 'No product matches "' + code + '".';
+                var recent = $("scan-recent");
+                if (recent) recent.textContent = 'No match for "' + code + '"';
+                return false;
+            }
+            addToCart(product);
+            switchTab("pos-tab", { replace: true });
+            showScanToast(product.name + " added to order");
+            closeScanner();
+            return true;
+        }
+
+        function openScannerShell(mode) {
+            var camera = mode === "camera";
+            $("scan-overlay").classList.remove("hidden");
+            $("scan-camera-pane").classList.toggle("hidden", !camera);
+            $("scan-barcode-pane").classList.toggle("hidden", camera);
+            $("scan-modal-title").textContent = camera ? "Scan with camera" : "Barcode scanner";
+            $("scan-modal-sub").textContent = camera
+                ? "Point the camera at a barcode"
+                : "Use a USB/Bluetooth scanner, or type a code";
+            $("scan-modal-icon").className = camera ? "fa-solid fa-camera" : "fa-solid fa-barcode";
+            if (!camera) {
+                $("scan-input").value = "";
+                setTimeout(function () { $("scan-input").focus(); }, 60);
+            }
+        }
+
+        function stopCamera() {
+            if (scanLoopId) { clearInterval(scanLoopId); scanLoopId = null; }
+            if (scanStream) {
+                scanStream.getTracks().forEach(function (t) { t.stop(); });
+                scanStream = null;
+            }
+            if (scanVideo) { try { scanVideo.srcObject = null; } catch (e) {} }
+            scanDetector = null;
+            scanLastHit = "";
+        }
+
+        function closeScanner() {
+            stopCamera();
+            $("scan-overlay").classList.add("hidden");
+        }
+
+        async function detectFrame() {
+            if (!scanDetector || !scanVideo) return;
+            try {
+                var codes = await scanDetector.detect(scanVideo);
+                if (codes && codes.length) {
+                    var value = codes[0].rawValue;
+                    if (value && value !== scanLastHit) {
+                        scanLastHit = value;
+                        handleScan(value);
+                    }
+                }
+            } catch (e) { /* a dropped frame is not an error worth surfacing */ }
+        }
+
+        async function openCameraScanner() {
+            openScannerShell("camera");
+            $("scan-status").textContent = "Starting camera…";
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                $("scan-status").textContent = "This browser cannot open the camera.";
+                return;
+            }
+            try {
+                scanStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: "environment" } },
+                    audio: false,
+                });
+                scanVideo.srcObject = scanStream;
+                await scanVideo.play();
+            } catch (err) {
+                $("scan-status").textContent = "Camera unavailable: " + ((err && err.message) || "permission denied");
+                return;
+            }
+
+            if (!("BarcodeDetector" in window)) {
+                $("scan-status").textContent = "Live decoding is not supported in this browser — use the barcode scanner.";
+                return;
+            }
+            try {
+                scanDetector = new window.BarcodeDetector({
+                    formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "codabar", "qr_code"],
+                });
+            } catch (e) {
+                try { scanDetector = new window.BarcodeDetector(); }
+                catch (e2) {
+                    $("scan-status").textContent = "Barcode detection is unavailable in this browser — use the barcode scanner.";
+                    return;
+                }
+            }
+            $("scan-status").textContent = "Point the camera at a barcode…";
+            scanLoopId = window.setInterval(detectFrame, 220);
+        }
+
+        $("scan-cam").addEventListener("click", function () { openCameraScanner(); });
+        $("scan-bar").addEventListener("click", function () { openScannerShell("barcode"); });
+        $("scan-close").addEventListener("click", closeScanner);
+        $("scan-overlay").addEventListener("click", function (e) {
+            if (e.target === $("scan-overlay")) closeScanner();
+        });
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && !$("scan-overlay").classList.contains("hidden")) closeScanner();
+        });
+        $("scan-input").addEventListener("keydown", function (e) {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            var code = $("scan-input").value.trim();
+            $("scan-input").value = "";
+            if (code) handleScan(code);
+        });
+
+        // A hardware gun types a burst of characters ending in Enter. When no
+        // visible field has focus, treat a fast burst as a scan so the till
+        // keeps up without the cashier opening anything.
+        var wedgeBuffer = "";
+        var wedgeLastAt = 0;
+        document.addEventListener("keydown", function (e) {
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            var target = e.target;
+            var typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+            if (typing) return;
+            var now = Date.now();
+            if (now - wedgeLastAt > 120) wedgeBuffer = "";
+            wedgeLastAt = now;
+            if (e.key === "Enter") {
+                if (wedgeBuffer.length >= 6) { e.preventDefault(); handleScan(wedgeBuffer); }
+                wedgeBuffer = "";
+                return;
+            }
+            if (e.key.length === 1) wedgeBuffer += e.key;
+        });
+
+        // Checkout shortcut: bring the till to the front and hand focus to the
+        // charge button so a scan-and-charge run needs no mouse at all.
+        $("checkout-short").addEventListener("click", function () {
+            switchTab("pos-tab", { replace: true });
+            var btn = $("charge-btn");
+            try { btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+            setTimeout(function () { if (!btn.disabled) btn.focus(); }, 250);
+        });
+
         // Session, search, clock
         // ------------------------------------------------------------------
-        $("logout-btn").addEventListener("click", function () {
+        // Logging the counter out also takes its till out of the system: the
+        // register's open drawer is closed first. Best-effort — a failed
+        // close must never trap the cashier in a session they want to leave.
+        async function endTillSession() {
+            try {
+                var data = await api("/cash-sessions");
+                var open = data && data.open;
+                if (!open || open.registerId !== REGISTER_ID) return;
+                await api("/cash-sessions/" + open.id + "/close", {
+                    method: "POST",
+                    body: { countedCloseMinor: open.expectedCashMinor },
+                });
+            } catch (e) { /* leaving the till open is better than blocking logout */ }
+        }
+
+        $("logout-btn").addEventListener("click", async function () {
+            $("logout-btn").disabled = true;
+            await endTillSession();
             localStorage.removeItem(TOKEN_KEY);
+            try {
+                localStorage.removeItem("pos:auth:role");
+                localStorage.removeItem("pos:auth:mode");
+            } catch (e) {}
             window.location.href = "/login";
         });
 
@@ -1896,15 +2177,18 @@
 
         // Land on whatever the URL names (deep link or refresh), normalising
         // stray paths back to a real route without polluting history.
-        var initialTab = tabFromPath(window.location.pathname);
+        var initialTab = guardRoleRoute(tabFromPath(window.location.pathname));
         switchTab(initialTab, { replace: true });
 
         // Warm the other tabs so their first click is instant; switchTab
-        // refreshes the active one on every visit.
-        [["dashboard-tab", loadDashboard], ["inventory-tab", loadInventory], ["customers-tab", loadCustomers], ["categories-tab", loadCategories], ["suppliers-tab", loadSuppliers], ["purchase-orders-tab", loadPurchaseOrders], ["stores-tab", loadStores], ["audit-tab", loadAudit]]
-            .forEach(function (entry) {
-                if (entry[0] !== initialTab) entry[1]();
-            });
+        // refreshes the active one on every visit. Admin views are only
+        // fetched for an admin — a cashier's register stays one call.
+        if (isAdmin()) {
+            [["dashboard-tab", loadDashboard], ["inventory-tab", loadInventory], ["customers-tab", loadCustomers], ["categories-tab", loadCategories], ["suppliers-tab", loadSuppliers], ["purchase-orders-tab", loadPurchaseOrders], ["stores-tab", loadStores], ["audit-tab", loadAudit]]
+                .forEach(function (entry) {
+                    if (entry[0] !== initialTab) entry[1]();
+                });
+        }
     })();
     </script>
 </body>
